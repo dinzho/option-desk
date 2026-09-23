@@ -1,0 +1,17 @@
+# 每日抓取的原始期权链（7MB+），唔入 repo，否则几个月后会撑爆
+scan/raw-*.json
+
+# 单只标的快照：每日会换一只，数据已经烤入 HTML，唔使留档
+snapshot-*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 本地日志 / 临时档
+*.log
+.DS_Store
+
+# 旧版散档（保留 src/ 单档源）
+*.bak

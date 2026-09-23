@@ -1,0 +1,103 @@
+name: 每日期权扫描
+
+# 每日美股收市后自动跑：
+#   21:30 UTC = 美东夏令 17:30 / 冬令 16:30（两个时区都喺收市后）
+#             = 香港 / 澳门时间 次日 05:30
+# 另外 workflow_dispatch 允许喺手机 GitHub App 手动触发
+on:
+  schedule:
+    - cron: '30 21 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 准备 Node（评分引擎用）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 扫描全市场（成交额 Top 60）
+        run: python3 scan.py --top 60 --workers 8
+
+      - name: 抓当日首选标的的完整期权链（供 IV 分析台用）
+        # 净烤扫描数据嘅话，IV 分析台会落到 AVGO demo 数据。
+        # 多抓当日第一名，用户点「打开分析台」就有真实期权链可砌策略。
+        run: |
+          SYM=$(python3 -c "
+          import json
+          d = json.load(open('scan/latest.json'))
+          r = d.get('results') or []
+          print(r[0]['symbol'] if r else '')
+          ")
+          if [ -z "$SYM" ]; then
+            echo "今日无合格标的，跳过快照抓取"
+          else
+            echo "当日首选: $SYM"
+            python3 fetch.py "$SYM" --months 4 || echo "快照抓取失败，退回纯扫描版"
+          fi
+
+      - name: 烤入单档 HTML
+        run: |
+          SNAP=$(ls -t snapshot-*.json 2>/dev/null | head -1 || true)
+          if [ -n "$SNAP" ]; then
+            echo "烤入快照: $SNAP"
+            python3 build.py --scan scan/latest.json --snapshot "$SNAP"
+          else
+            python3 build.py --scan scan/latest.json
+          fi
+          mkdir -p public
+          cp OptionDesk.html public/index.html
+          echo "构建完成：$(du -h public/index.html | cut -f1)"
+
+      - name: 写一份运行摘要
+        run: |
+          python3 - <<'PY'
+          import json, io
+          d = json.load(io.open('scan/latest.json', encoding='utf-8'))
+          s = d.get('summary', {})
+          lines = [
+            "# 每日扫描 %s" % d.get('date'),
+            "",
+            "- 扫描 %s 档 · 合格 %s 档 · 值得做 %s 个 · 观察 %s 个" % (
+                s.get('scanned'), s.get('survived'), s.get('actionable'), s.get('watch')),
+            ""
+          ]
+          for i, r in enumerate((d.get('results') or [])[:10], 1):
+              lines.append("%d. **%s** %s 分 %s · IV30 %s · VR %s" % (
+                  i, r['symbol'], r['score'],
+                  (d.get('tags', {}).get(r['tag'], {}) or {}).get('label', r['tag']),
+                  ("%.1f%%" % (r['iv30'] * 100)) if r.get('iv30') else '—',
+                  ("%.2f" % r['vr']) if r.get('vr') else '—'))
+          io.open('public/summary.md', 'w', encoding='utf-8').write("\n".join(lines))
+          print("\n".join(lines))
+          PY
+
+      - name: 提交更新（触发 Netlify 自动部署）
+        run: |
+          git config user.name "OptionDesk Bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add public/index.html public/summary.md scan/scan-*.json scan/latest.json
+          if git diff --cached --quiet; then
+            echo "今日数据与昨日相同，跳过提交"
+          else
+            git commit -m "每日扫描 $(date -u +%F)"
+            git push
+          fi

@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="专业期权交易工作台：IV 分析、多腿策略构建、Greeks 敞口、概率与压力测试。全部本地计算，免费数据源。">
+<meta name="theme-color" content="#0d1117">
+<title>OptionDesk · 期权交易工作台</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d1117'/%3E%3Cpath d='M6 22 L12 14 L18 18 L26 8' fill='none' stroke='%2334d399' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='26' cy='8' r='2.6' fill='%2334d399'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">◈</span>
+    <div>
+      <h1>Option<span>Desk</span></h1>
+      <p class="eyebrow">期权交易工作台 · 本地计算</p>
+    </div>
+  </div>
+
+  <form class="inline-form" id="symbol-form" autocomplete="off">
+    <input class="input" id="symbol-input" type="text" value="AVGO" placeholder="股票代码 如 AVGO" aria-label="股票代码" spellcheck="false">
+    <button class="btn btn-primary" type="submit" id="btn-load">载入</button>
+    <button class="btn btn-ghost" type="button" id="btn-demo">演示数据</button>
+  </form>
+
+  <div class="quote" id="top-quote">
+    <span class="quote-sym" id="q-sym">—</span>
+    <span class="quote-px big-num" id="q-price">—</span>
+    <span class="quote-chg pill" id="q-change">—</span>
+  </div>
+
+  <div class="status" id="data-status" title="数据源状态">
+    <span class="status-dot" id="status-dot"></span>
+    <span id="status-text">未载入</span>
+  </div>
+
+  <div class="row">
+    <button class="btn btn-ghost btn-sm" id="btn-datasource" title="配置数据源与 CORS 代理">数据源</button>
+    <button class="theme-toggle" id="btn-theme" title="切换深色/浅色" aria-label="切换主题">◐</button>
+  </div>
+</header>
+
+<div class="workspace">
+
+  <!-- ============ 左侧参数面板 ============ -->
+  <aside class="sidebar" aria-label="分析参数">
+
+    <section class="panel">
+      <div class="panel-head"><h2>标的与假设</h2></div>
+      <div class="panel-body">
+        <div class="field-grid is-2">
+          <div class="field">
+            <label for="in-spot">标的现价</label>
+            <input class="input is-num" id="in-spot" type="number" step="0.01" value="357.61">
+          </div>
+          <div class="field">
+            <label for="in-iv">基准 IV %</label>
+            <input class="input is-num" id="in-iv" type="number" step="0.1" value="34.8">
+          </div>
+          <div class="field">
+            <label for="in-rate">无风险利率 %</label>
+            <input class="input is-num" id="in-rate" type="number" step="0.1" value="4.3">
+          </div>
+          <div class="field">
+            <label for="in-div">股息率 %</label>
+            <input class="input is-num" id="in-div" type="number" step="0.1" value="0.7">
+          </div>
+        </div>
+        <p class="field-hint">IV 会随所选合约自动更新；手填时会以该值作为全链基准。</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>策略模板</h2><span class="badge badge-muted" id="tpl-count">—</span></div>
+      <div class="panel-body">
+        <div class="field">
+          <label for="in-template">选择策略</label>
+          <select class="select" id="in-template"></select>
+        </div>
+        <p class="field-hint" id="tpl-desc">—</p>
+        <div class="field-grid is-2">
+          <div class="field">
+            <label for="in-dte">短腿 DTE</label>
+            <input class="input is-num" id="in-dte" type="number" step="1" value="45">
+          </div>
+          <div class="field">
+            <label for="in-dte2">长腿 DTE</label>
+            <input class="input is-num" id="in-dte2" type="number" step="1" value="550">
+          </div>
+          <div class="field">
+            <label for="in-width">行权价间距 %</label>
+            <input class="input is-num" id="in-width" type="number" step="0.5" value="5">
+          </div>
+          <div class="field">
+            <label for="in-wing">保护翼宽 %</label>
+            <input class="input is-num" id="in-wing" type="number" step="0.5" value="5">
+          </div>
+          <div class="field">
+            <label for="in-qty">合约数量</label>
+            <input class="input is-num" id="in-qty" type="number" step="1" value="1">
+          </div>
+          <div class="field">
+            <label for="in-american">美式定价</label>
+            <select class="select" id="in-american">
+              <option value="1" selected>是（美股个股）</option>
+              <option value="0">否（欧式）</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" id="btn-build" style="margin-top:10px">生成策略 ↗</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>导入 / 导出</h2></div>
+      <div class="panel-body stack">
+        <details>
+          <summary class="tip">粘贴期权链 CSV（无网络时可用）</summary>
+          <p class="field-hint">列：<span class="mono">type,strike,bid,ask,last,iv,volume,openInterest</span>。IV 支持 34.8 或 0.348 两种写法。</p>
+          <textarea class="input" id="in-csv" rows="5" placeholder="type,strike,bid,ask,last,iv,volume,openInterest&#10;call,360,17.0,17.4,17.2,34.8,1200,3400&#10;put,340,8.9,9.2,9.05,36.1,880,2100"></textarea>
+          <button class="btn btn-sm" id="btn-import-csv" style="margin-top:6px">导入并补齐 Greeks</button>
+        </details>
+        <button class="btn btn-sm btn-ghost" id="btn-export">导出当前持仓 JSON</button>
+      </div>
+    </section>
+
+  </aside>
+
+  <!-- ============ 主内容 ============ -->
+  <main class="main-col">
+
+    <nav class="tabs" role="tablist" aria-label="主功能">
+      <button class="tab is-active" role="tab" data-tab="scan">每日扫描</button>
+      <button class="tab" role="tab" data-tab="iv">IV 分析台</button>
+      <button class="tab" role="tab" data-tab="builder">策略构建器</button>
+      <button class="tab" role="tab" data-tab="chain">期权链</button>
+      <button class="tab" role="tab" data-tab="risk">风险与压力</button>
+      <button class="tab" role="tab" data-tab="help">说明</button>
+    </nav>
+
+    <!-- ---------- Tab: Scan（每日扫描，默认首屏） ---------- -->
+    <section class="tab-panel is-active" data-panel="scan">
+      <div id="scan-root"></div>
+    </section>
+
+    <!-- ---------- Tab: IV ---------- -->
+    <section class="tab-panel" data-panel="iv">
+      <div class="grid-kpi" id="iv-kpis"></div>
+
+      <div class="verdict" id="iv-verdict">
+        <div id="iv-verdict-text">
+          <p class="eyebrow">波动率环境判断</p>
+          <p>载入数据后生成</p>
+        </div>
+      </div>
+
+      <div class="grid-2 is-fixed">
+        <div class="chart-box">
+          <div class="chart-title">历史 IV 与实现波动率</div>
+          <div id="chart-iv-history"></div>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">IV 期限结构（Term Structure）</div>
+          <div id="chart-term"></div>
+        </div>
+      </div>
+
+      <div class="grid-2 is-fixed">
+        <div class="chart-box">
+          <div class="chart-title">IV 微笑 / 偏斜（Skew）</div>
+          <div id="chart-skew"></div>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">波动率指标明细</div>
+          <div class="stat-list" id="iv-stats"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Tab: Builder ---------- -->
+    <section class="tab-panel" data-panel="builder">
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>持仓腿</h2>
+          <span class="muted" style="font-size:11px">点击行内数值可直接修改 · 到期损益与评分即时重算</span>
+          <span class="grow"></span>
+          <button class="btn btn-sm btn-ghost" id="btn-add-leg">+ 加腿</button>
+        </div>
+        <div class="panel-body">
+          <div class="table-wrap">
+            <div class="legs-table" id="legs-table"></div>
+          </div>
+          <div class="legs-foot" id="legs-foot"></div>
+        </div>
+      </div>
+
+      <div class="split-30">
+        <div class="score-block">
+          <div class="score-ring" id="score-ring" style="--score:0">
+            <span class="score-val">—</span><span class="score-cap">/ 100</span>
+          </div>
+          <div>
+            <p class="eyebrow">结构评分</p>
+            <h2 id="score-label">尚未构建</h2>
+          </div>
+        </div>
+        <div class="verdict" id="builder-verdict">
+          <div id="builder-verdict-text">
+            <p class="eyebrow">结论</p>
+            <p>先在左侧选择策略模板并生成</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-kpi" id="builder-kpis"></div>
+
+      <div class="chart-box">
+        <div class="chart-title">到期损益曲线（P&amp;L at Expiration）</div>
+        <div id="chart-payoff"></div>
+      </div>
+
+      <div class="grid-2 is-fixed">
+        <div class="chart-box">
+          <div class="chart-title">时间衰减路径（T+0 → 到期）</div>
+          <div id="chart-time"></div>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">组合 Greeks 敞口</div>
+          <div id="chart-greeks"></div>
+        </div>
+      </div>
+
+      <div class="chart-box">
+        <div class="chart-title">评分分项</div>
+        <div class="stat-list" id="score-components"></div>
+      </div>
+    </section>
+
+    <!-- ---------- Tab: Chain ---------- -->
+    <section class="tab-panel" data-panel="chain">
+      <div class="toolbar">
+        <div class="row">
+          <span class="muted">到期日</span>
+          <div class="seg" id="expiry-seg"></div>
+        </div>
+        <div class="row">
+          <span class="muted">显示</span>
+          <div class="seg" id="chain-filter">
+            <button class="seg-btn is-active" data-filter="all">全部</button>
+            <button class="seg-btn" data-filter="otm">仅 OTM</button>
+            <button class="seg-btn" data-filter="itm">仅 ITM</button>
+          </div>
+        </div>
+        <span class="grow"></span>
+        <span class="muted" id="chain-meta">—</span>
+      </div>
+
+      <div class="table-wrap">
+        <table class="chain-table" id="chain-table">
+          <thead>
+            <tr>
+              <th colspan="6" class="col-mid" style="text-align:left">CALL</th>
+              <th class="col-mid">行权价</th>
+              <th colspan="6" class="col-mid" style="text-align:right">PUT</th>
+            </tr>
+            <tr class="sub">
+              <th class="col-num">Δ</th><th class="col-num">IV</th><th class="col-num">Bid</th>
+              <th class="col-num">Ask</th><th class="col-num">Mid</th><th class="col-num">OI</th>
+              <th class="col-mid">K</th>
+              <th class="col-num">Bid</th><th class="col-num">Ask</th><th class="col-num">Mid</th>
+              <th class="col-num">IV</th><th class="col-num">Δ</th><th class="col-num">OI</th>
+            </tr>
+          </thead>
+          <tbody id="chain-body"></tbody>
+        </table>
+      </div>
+      <p class="field-hint">点击任意合约即可加入持仓（再次点击同侧会替换该腿）。Δ 与理论价由本地引擎计算，不依赖数据源提供 Greeks。</p>
+
+      <div class="grid-2 is-fixed">
+        <div class="chart-box">
+          <div class="chart-title">IV 微笑（所选到期日）</div>
+          <div id="chart-chain-skew"></div>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">做市价差与流动性</div>
+          <div id="chart-liquidity"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Tab: Risk ---------- -->
+    <section class="tab-panel" data-panel="risk">
+      <div class="grid-kpi" id="risk-kpis"></div>
+
+      <div class="chart-box">
+        <div class="chart-title">到期价格概率分布与预期移动</div>
+        <div id="chart-dist"></div>
+      </div>
+
+      <div class="toolbar">
+        <div class="row">
+          <span class="muted">矩阵维度</span>
+          <div class="seg" id="matrix-mode">
+            <button class="seg-btn is-active" data-mode="time">股价 × 时间</button>
+            <button class="seg-btn" data-mode="iv">股价 × IV</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="muted">数值</span>
+          <div class="seg" id="matrix-metric">
+            <button class="seg-btn is-active" data-metric="roi">收益率 %</button>
+            <button class="seg-btn" data-metric="pnl">盈亏 $</button>
+            <button class="seg-btn" data-metric="value">估值 $</button>
+          </div>
+        </div>
+        <span class="grow"></span>
+        <span class="muted" id="matrix-meta">—</span>
+      </div>
+
+      <div class="chart-box">
+        <div class="chart-title" id="matrix-title">股价 × 时间 热力图</div>
+        <div id="chart-heatmap"></div>
+      </div>
+
+      <div class="chart-box">
+        <div class="chart-title">情景分析（到期）</div>
+        <div class="table-wrap">
+          <table class="chain-table compact" id="scenario-table">
+            <thead>
+              <tr>
+                <th>情景</th><th class="col-num">股价</th><th class="col-num">期权盈亏 $</th>
+                <th class="col-num">收益率 %</th><th class="col-num">股票盈亏 $</th><th class="col-num">跑赢/跑输</th>
+              </tr>
+            </thead>
+            <tbody id="scenario-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="chart-box">
+        <div class="chart-title">Greeks 敏感性（单因子冲击）</div>
+        <div class="table-wrap">
+          <table class="chain-table compact" id="stress-table">
+            <thead>
+              <tr><th>冲击</th><th class="col-num">组合盈亏变化 $</th><th class="col-num">占最大亏损 %</th><th>说明</th></tr>
+            </thead>
+            <tbody id="stress-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Tab: Help ---------- -->
+    <section class="tab-panel" data-panel="help">
+      <div class="grid-2">
+        <div class="chart-box">
+          <div class="chart-title">这是做什么的</div>
+          <div class="panel-body stack">
+            <p>这是一个<strong>期权交易工作台</strong>：把波动率分析、多腿策略构建、Greeks 敞口、概率与压力测试放在同一个界面里。所有计算都在<strong>你的浏览器内</strong>完成，输入不会上传到任何服务器。</p>
+            <p>相对常见的「单腿 LEAPS 分析器」，这里的差异在于：</p>
+            <ul class="stack">
+              <li>支持<strong>任意多腿组合</strong>（最多 8 腿，含股票腿与不同到期日），而非只有单腿看涨</li>
+              <li>Greeks 由定价引擎<strong>自行计算到三阶</strong>（Delta/Gamma/Theta/Vega/Rho + Vanna/Charm/Vomma/Veta），不需要手填</li>
+              <li>从市价<strong>反解隐含波动率</strong>，并判断该 IV 是否数学上可辨识</li>
+              <li>给出<strong>盈利概率 POP、期望值 EV、预期移动</strong>与风险中性概率分布</li>
+              <li>双因子热力矩阵：股价 × 时间，以及股价 × IV</li>
+              <li>25 个策略模板，一键生成并按结构打分</li>
+            </ul>
+          </div>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">数据来源（全部免费）</div>
+          <div class="panel-body stack">
+            <p>默认使用 <span class="mono">Yahoo Finance</span> 的非公开端点获取报价、历史 K 线与期权链。浏览器直连会被 CORS 拦截，因此内置了多个免费公共代理自动轮换。</p>
+            <p><strong>最稳定的方式</strong>是运行随附的本地代理：</p>
+            <pre class="mono" style="background:var(--c-surface-2);padding:10px;border-radius:6px;overflow:auto">python3 proxy.py</pre>
+            <p>然后点右上角「数据源」，把「本地代理」移到第一位。它只监听 <span class="mono">127.0.0.1</span>，且只允许访问 Yahoo / Stooq 域名。</p>
+            <p>如果所有源都不可用（公司网络、地区限制），可以用「演示数据」完整体验，或在左侧粘贴期权链 CSV 手动导入。</p>
+          </div>
+        </div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">需要留意的模型边界</div>
+        <div class="panel-body stack">
+          <ul class="stack">
+            <li>定价基于 Black-Scholes-Merton（连续股息）与 CRR 二叉树（美式）。它<strong>假设波动率为常数</strong>，而真实市场存在微笑/偏斜，因此深实值与深虚值合约的定价会有偏差。</li>
+            <li>POP 与 EV 使用<strong>风险中性测度</strong>。这不是对真实世界概率的预测——真实分布通常更肥尾，尾部风险会被低估。</li>
+            <li>保证金/资金占用是<strong>简化估算</strong>，不是券商实际收取的数额。实际保证金随券商、账户等级与持仓组合而变。</li>
+            <li>IV Rank 需要 52 周 IV 历史。免费源不提供，因此本工具会<strong>在本地逐日累积</strong>你查询过的 IV 快照；样本不足时退化为用实现波动率代理，并在界面上明确标注。</li>
+            <li>工具用于<strong>结构分析与情景推演</strong>，不构成投资建议。期权交易可能损失全部本金，卖方策略风险可能超过本金。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <footer class="panel-foot" style="margin-top:8px">
+      <p class="muted">OptionDesk · 全部计算在浏览器本地完成 · 数据来自公开免费接口 · 不构成投资建议</p>
+    </footer>
+  </main>
+</div>
+
+<div class="toast-stack" id="toast-stack"></div>
+
+<!-- 数据源配置弹层 -->
+<div class="modal" id="ds-modal" hidden>
+  <div class="modal-card">
+    <div class="panel-head"><h2>数据源与代理</h2><button class="btn-icon" id="ds-close" aria-label="关闭">✕</button></div>
+    <div class="panel-body stack">
+      <p class="field-hint">按顺序尝试，把可用的拖到最上面。点「测试」会逐项探测。</p>
+      <div id="proxy-list" class="stack"></div>
+      <div class="row">
+        <button class="btn btn-sm" id="btn-test-proxy">测试连通性</button>
+        <button class="btn btn-sm btn-primary" id="btn-save-proxy">保存</button>
+      </div>
+      <div id="proxy-test-out" class="mono" style="font-size:11px"></div>
+    </div>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script src="strategies.js"></script>
+<script src="data.js"></script>
+<script src="charts.js"></script>
+<script src="scan.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
