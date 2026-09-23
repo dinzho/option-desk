@@ -994,3 +994,32 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
   .scan-list { grid-template-columns: 1fr; }
   .sc-metrics { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---- 损益平衡行：成张卡最紧要嘅一行 ---- */
+.scs-be {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
+  margin-top: 6px; padding: 7px 9px; border-radius: var(--r-sm);
+  background: var(--c-surface-3); border-left: 3px solid var(--c-accent);
+  font-size: var(--fs-body); line-height: 1.5;
+}
+.scs-be .be-tag {
+  flex: 0 0 auto; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  padding: 2px 6px; border-radius: var(--r-sm);
+  background: var(--c-accent-soft); color: var(--c-accent);
+}
+.scs-be .be-body { color: var(--c-text); }
+.scs-be b { color: var(--c-accent); font-variant-numeric: tabular-nums; }
+.scs-be .bemove {
+  display: block; width: 100%; margin-top: 2px;
+  font-size: var(--fs-eyebrow); color: var(--c-muted);
+}
+.scs-be .be-now {
+  margin-left: auto; font-size: var(--fs-eyebrow); color: var(--c-faint);
+  font-variant-numeric: tabular-nums;
+}
+.sc-expiry {
+  font-size: var(--fs-eyebrow); color: var(--c-muted);
+  padding: 2px 8px; border-radius: var(--r-pill);
+  background: var(--c-surface-3); font-variant-numeric: tabular-nums;
+}
+.sc-expiry b { color: var(--c-text); font-weight: 700; }

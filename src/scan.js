@@ -196,10 +196,21 @@
       // Straddle 类结构嘅 maxProfit 系 null（上行方向理论上限唔封顶），
       // 显示「—」会令人以为计错数，要讲清楚。
       var mp = isNum(st.maxProfit) ? money(st.maxProfit) : '理论上不设上限';
-      if (isNum(st.credit)) profitLine = '收 ' + money(st.credit) + '／张　最大赚 ' + mp;
-      else if (isNum(st.debit)) profitLine = '付 ' + money(st.debit) + '／张　最大赚 ' + mp;
+      var perContract = isNum(st.credit) ? st.credit : (isNum(st.debit) ? st.debit : null);
+      if (isNum(st.credit)) profitLine = '收 ' + money(st.credit) + '／股';
+      else if (isNum(st.debit)) profitLine = '付 ' + money(st.debit) + '／股';
+      // 1 张 = 100 股，落单实际金额的系呢个
+      if (perContract != null) profitLine += '（$' + (perContract * 100).toFixed(0) + '／张，1 张 = 100 股）';
+      profitLine += '　最大赚 ' + mp;
       if (isNum(st.pop)) profitLine += '　POP ' + pc(st.pop * 100, 0);
       if (isNum(st.maxLoss)) profitLine += '　最大亏 ' + money(st.maxLoss);
+    }
+
+    // 到期日 —— 用户问「做边一日」就系睇呢度
+    var expiryLine = '';
+    if (st && st.expiry) {
+      expiryLine = '<span class="sc-expiry">到期 <b>' + esc(st.expiry) + '</b>' +
+        (st.dte != null ? ' · 仲有 ' + st.dte + ' 天' : '') + '</span>';
     }
 
     return '' +
@@ -240,11 +251,12 @@
         '</div>' +
 
         (st ? '<div class="sc-struct">' +
-          '<div class="scs-head"><b>' + esc(st.name || '建议结构') + '</b>' +
+          '<div class="scs-head"><b>' + esc(st.name || '建议结构') + '</b>' + expiryLine +
             (r.earningsDate ? '<span class="sc-warn">财报 ' + esc(r.earningsDate) + '</span>' : '') +
           '</div>' +
           '<div class="scs-legs">' + legs + '</div>' +
           '<div class="scs-pnl">' + esc(profitLine) + '</div>' +
+          breakEvenHtml(st, r.price) +
           (st.note ? '<div class="scs-note">' + esc(st.note) + '</div>' : '') +
           '</div>' : '') +
 
@@ -257,6 +269,57 @@
 
   function metric(k, v, cls) {
     return '<div class="scm"><span>' + esc(k) + '</span><b class="' + (cls || '') + '">' + esc(v) + '</b></div>';
+  }
+
+  /**
+   * 损益平衡 —— 成张卡最重要嘅一行。
+   * 用户要嘅唔系一堆 Greeks，而系「要升／跌几多先赚」或者「跌穿几多先蚀」。
+   * 买方（debit）同卖方（credit）语义相反，文案要分开写。
+   */
+  function breakEvenHtml(st, S) {
+    var be = st.breakEven, mv = st.movePct;
+    if (!be) return '';
+    var isBuy = isNum(st.debit);
+    var lo = isNum(be.lower) ? be.lower : null;
+    var hi = isNum(be.upper) ? be.upper : null;
+    var body = '';
+
+    if (lo != null && hi != null) {
+      if (isBuy) {
+        // Long Straddle：两边都要过先赚
+        body = '要跌到 <b>' + money(lo) + '</b> 以下，或升到 <b>' + money(hi) + '</b> 以上先赚钱';
+        if (mv && isNum(mv.down) && isNum(mv.up))
+          body += '<span class="bemove">即要跌 <b>' + Math.abs(mv.down).toFixed(1) + '%</b>' +
+            ' 或升 <b>' + mv.up.toFixed(1) + '%</b></span>';
+      } else {
+        // Iron Condor / 双卖：中间安全区
+        body = '安全区 <b>' + money(lo) + ' ~ ' + money(hi) + '</b>，到期喺区间内就全收';
+        if (mv && isNum(mv.down) && isNum(mv.up))
+          body += '<span class="bemove">即可跌 <b>' + Math.abs(mv.down).toFixed(1) + '%</b>' +
+            ' 或升 <b>' + mv.up.toFixed(1) + '%</b> 都仲赚</span>';
+      }
+    } else if (lo != null) {
+      body = isBuy
+        ? ('要跌到 <b>' + money(lo) + '</b> 以下先赚钱')
+        : ('跌穿 <b>' + money(lo) + '</b> 先开始蚀');
+      if (mv && isNum(mv.down))
+        body += '<span class="bemove">' + (isBuy ? '即要跌 ' : '缓冲 ') +
+          '<b>' + Math.abs(mv.down).toFixed(1) + '%</b></span>';
+    } else if (hi != null) {
+      body = isBuy
+        ? ('要升到 <b>' + money(hi) + '</b> 以上先赚钱')
+        : ('升穿 <b>' + money(hi) + '</b> 先开始蚀');
+      if (mv && isNum(mv.up))
+        body += '<span class="bemove">' + (isBuy ? '即要升 ' : '缓冲 ') +
+          '<b>' + mv.up.toFixed(1) + '%</b></span>';
+    } else {
+      return '';
+    }
+
+    return '<div class="scs-be"><span class="be-tag">损平</span>' +
+      '<span class="be-body">' + body + '</span>' +
+      (isNum(S) ? '<span class="be-now">现价 ' + money(S) + '</span>' : '') +
+      '</div>';
   }
   function vrCls(v) { return !isNum(v) ? '' : (v >= 1.15 ? 'up' : (v <= 0.92 ? 'down' : '')); }
 

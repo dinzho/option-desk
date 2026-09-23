@@ -580,6 +580,17 @@
       });
       return best;
     }
+    /** 攞同一个行权价嘅 call / put。Straddle 必须同 K，
+     *  分开用 pickByDelta 会拣到两个唔同 K，砌出嚟唔系 straddle，损平点都计唔到。 */
+    function pickPairAt(K) {
+      var c = null, p = null;
+      rows.forEach(function (x) {
+        if (x.K !== K) return;
+        if (x.kind === 'call') c = x; else p = x;
+      });
+      return { call: c, put: p };
+    }
+    var atmK = m.picked.atm.K;
 
     if (!rows.length) {
       out.note = '合约明细不足，无法给出具体行权价';
@@ -632,8 +643,9 @@
     } else if (tag === 'BUY_VOL') {
       // Straddle 一定要两条腿（买 Call + 买 Put）先算「赌波动放大、唔赌方向」。
       // 之前净出 call 腿，用户会当系单边做多，同 BUY_VOL 嘅语义完全相反。
-      var atmC = pickByDelta('call', 0.5);
-      var atmP = pickByDelta('put', 0.5);
+      var pair = pickPairAt(atmK);
+      var atmC = pair.call || pickByDelta('call', 0.5);
+      var atmP = pair.put || pickByDelta('put', 0.5);
       if (atmC && atmP) {
         out.name = 'Long Straddle（买 Call + 买 Put）';
         out.legs = [
@@ -644,8 +656,8 @@
         out.maxLoss = out.debit * 100;
         out.maxProfit = null;                 // 上行方向理论上限唔封顶
         out.pop = null;
-        out.note = 'IV 被低估，赌波动放大而不赌方向；两边都要过 ' +
-          (out.debit).toFixed(2) + ' 先回本，注意 theta 流血';
+        out.note = 'IV 被低估，赌波动放大而不赌方向；到期前要升或跌超过 ' +
+          (out.debit / S * 100).toFixed(1) + '% 先回本，注意 theta 流血';
       } else if (atmC) {
         out.name = 'Long Call';
         out.legs = [{ act: 'buy', kind: 'call', K: atmC.K, mid: atmC.mid }];
@@ -654,8 +666,9 @@
         out.note = 'IV 被低估，用 debit 结构博波动放大；注意 theta 流血';
       }
     } else if (tag === 'EARNINGS') {
-      var ec = pickByDelta('call', 0.5);
-      var ep = pickByDelta('put', 0.5);
+      var epair = pickPairAt(atmK);
+      var ec = epair.call || pickByDelta('call', 0.5);
+      var ep = epair.put || pickByDelta('put', 0.5);
       if (ec && ep) {
         out.name = '跨财报 Long Straddle';
         out.legs = [
@@ -690,6 +703,54 @@
       out.name = '—';
       out.note = '无明确结构建议';
     }
+    return attachBreakEven(out, S);
+  }
+
+  /**
+   * 帮建议结构补上「损益平衡点」同「相对现价要升／跌几多 % 先赚」。
+   * 用户睇一张卡要嘅其实系三件事：做边一日、咩行权价、要升跌几多先赚。
+   * 净系写「买 Call 185 @13.48」根本落唔到单。
+   */
+  function attachBreakEven(out, S) {
+    if (!out || !out.legs || !out.legs.length) return out;
+    var net = (out.debit != null) ? out.debit
+      : (out.credit != null ? out.credit : null);
+    if (net == null || !fin(S) || S <= 0) return out;
+
+    var sells = out.legs.filter(function (L) { return L.act === 'sell'; });
+    var buys = out.legs.filter(function (L) { return L.act === 'buy'; });
+    var be = null;
+
+    if (!sells.length && buys.length === 2) {
+      // Long Straddle：上下各一个损平点
+      be = { lower: buys[0].K - net, upper: buys[0].K + net };
+    } else if (!sells.length && buys.length === 1) {
+      // 单腿买方
+      be = buys[0].kind === 'call'
+        ? { upper: buys[0].K + net }
+        : { lower: buys[0].K - net };
+    } else if (sells.length === 1 && buys.length === 1) {
+      // 价差（debit / credit spread）：同类型，取 long 腿定损平
+      var long = buys[0];
+      be = long.kind === 'call' ? { upper: long.K + net } : { lower: long.K - net };
+    } else if (sells.length >= 2) {
+      // Iron Condor：中间系安全区，跌穿下界或升穿上界就开始蚀
+      var sp = sells.filter(function (L) { return L.kind === 'put'; })[0];
+      var sc = sells.filter(function (L) { return L.kind === 'call'; })[0];
+      if (sp && sc) be = { lower: sp.K - net, upper: sc.K + net };
+      else if (sp) be = { lower: sp.K - net };
+      else if (sc) be = { upper: sc.K + net };
+    } else if (sells.length === 1) {
+      // 单腿卖方
+      if (sells[0].kind === 'put') be = { lower: sells[0].K - net };
+      else be = { lower: S - net, upper: sells[0].K + net };   // Covered Call（持正股）
+    }
+
+    if (!be) return out;
+    out.breakEven = be;
+    out.movePct = {};
+    if (fin(be.lower)) out.movePct.down = (be.lower / S - 1) * 100;
+    if (fin(be.upper)) out.movePct.up = (be.upper / S - 1) * 100;
     return out;
   }
 
