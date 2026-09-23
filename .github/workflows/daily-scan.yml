@@ -34,6 +34,18 @@ jobs:
       - name: 安装依赖
         run: pip install requests
 
+      - name: 检查 Nasdaq API 连通性
+        # GitHub Actions 嘅 IP 同本地唔同。万一 Nasdaq 挡咗 CI IP，
+        # 呢步会即刻讲明系网络问题，而唔系俾 scan.py 静默交白卷。
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "User-Agent: Mozilla/5.0" \
+            "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=1&offset=0&download=true")
+          echo "Nasdaq API HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::warning::Nasdaq API 由 CI 访问异常（HTTP $CODE），后续扫描可能交白卷"
+          fi
+
       - name: 扫描全市场（成交额 Top 60）
         run: python3 scan.py --top 60 --workers 8
 
