@@ -15,3 +15,10 @@ __pycache__/
 
 # 旧版散档（保留 src/ 单档源）
 *.bak
+
+# 测试依赖（playwright-core 只系本地跑冒烟测试用，Actions 用 chromium 直跑）
+node_modules/
+package-lock.json
+
+# 测试产物
+test/*.png

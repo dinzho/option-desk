@@ -27,6 +27,19 @@ def read(p):
         return f.read()
 
 
+def bake_json(obj):
+    """把物件安全地內聯成 <script> 可以執行嘅賦值語句。
+
+    唔可以寫成 ("window.X = JSON.parse('%s')" % raw) ——
+    只要資料入面有任何一個單引號（實測 McDonald's 令成頁白屏），
+    字串就會提早閉合，瀏覽器報 "missing ) after argument list"。
+    正確做法：先 json.dumps 成合法 JS 字面量，再轉義 </>
+    """
+    raw = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    # </script 會提早閉合；< > & 一併轉義最保險
+    return raw.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
 def main():
     ap = argparse.ArgumentParser(description="构建 OptionDesk 单档 HTML")
     ap.add_argument("-o", "--out", default=None, help="输出文件（默认 ./OptionDesk.html）")
@@ -50,15 +63,14 @@ def main():
             raise SystemExit("找不到快照文件: %s" % sp)
         with io.open(sp, "r", encoding="utf-8") as f:
             snap = json.load(f)
-        raw = json.dumps(snap, ensure_ascii=False, separators=(",", ":"))
-        # </script 会提前闭合 script 标签；< 一并转义最保险
-        raw = raw.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        raw = bake_json(snap)
         sym = (snap.get("symbol") or "?").upper()
         stamp = snap.get("fetchedAt") or "?"
         print("烤入快照: %s  %s  (%.1f KB)" % (sym, stamp, len(raw.encode("utf-8")) / 1024.0))
-        snap_html = ("<script>\nwindow.__DESK_SNAPSHOT__ = JSON.parse('%s');\n"
-                     "window.__DESK_SNAPSHOT_META__ = {symbol:'%s',fetchedAt:'%s'};\n</script>\n"
-                     % (raw, sym, stamp))
+        # 直接用 JS 对象字面量，唔再经 JSON.parse('...')，避开引号问题
+        snap_html = ("<script>\nwindow.__DESK_SNAPSHOT__ = %s;\n"
+                     "window.__DESK_SNAPSHOT_META__ = %s;\n</script>\n"
+                     % (raw, bake_json({"symbol": sym, "fetchedAt": stamp})))
 
     # ---- 每日扫描烤入 ----
     scan_html = ""
@@ -70,14 +82,13 @@ def main():
             raise SystemExit("找不到扫描文件: %s" % sp)
         with io.open(sp, "r", encoding="utf-8") as f:
             scan = json.load(f)
-        raw = json.dumps(scan, ensure_ascii=False, separators=(",", ":"))
-        raw = raw.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        raw = bake_json(scan)
         sm = scan.get("summary") or {}
         print("烤入扫描: %s  %d 档（机会 %d / 观察 %d）  %.1f KB" % (
             scan.get("date") or "?", sm.get("survived") or 0,
             sm.get("actionable") or 0, sm.get("watch") or 0,
             len(raw.encode("utf-8")) / 1024.0))
-        scan_html = "<script>\nwindow.__DESK_SCAN__ = JSON.parse('%s');\n</script>\n" % raw
+        scan_html = "<script>\nwindow.__DESK_SCAN__ = %s;\n</script>\n" % raw
 
     js_parts = []
     for name in JS_ORDER:

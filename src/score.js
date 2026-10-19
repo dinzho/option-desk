@@ -101,7 +101,30 @@
     var rows = [], surfRows = [];
     ['calls', 'puts'].forEach(function (side) {
       var kind = side === 'calls' ? 'call' : 'put';
-      (chain[side] || []).forEach(function (o) {
+      // Nasdaq 對部分標的（實測 PANW）會將同一個 strike 回兩次：
+      // 一筆係真實報價，另一筆係鬼數據（bid=null、ask 固定 5、last 離譜到 414.5）。
+      // 唔去重的話，(bid+ask)/2 會用鬼數據算出 mid=13.5 / 34.9 呢類垃圾值，
+      // 再把真報價嗰筆擠走（因為 pickPairAt 用 rows.find，命中邊一筆睇運氣）。
+      // 做法：同一 (kind,K) 只保留「兩邊都有真報價 + OI 較大」嗰筆；鬼數據直接丟。
+      var seenK = {};
+      var src = (chain[side] || []).filter(function (o) {
+        if (!fin(o.strike) || o.strike <= 0) return false;
+        var b = fin(o.bid) ? o.bid : null, a = fin(o.ask) ? o.ask : null;
+        // 兩邊都冇報價 → 一定係廢合約，唔關「重複」事，直接走
+        if (b == null && a == null) return false;
+        var key = String(o.strike);
+        var prev = seenK[key];
+        if (!prev) { seenK[key] = o; return true; }
+        // 重複：揀「報價更完整、OI 更大」嗰筆
+        var score = function (x) {
+          var xb = fin(x.bid) ? 1 : 0, xa = fin(x.ask) && x.ask > 0 ? 1 : 0;
+          return (xb + xa) * 1e9 + (x.openInterest || 0);
+        };
+        if (score(o) > score(prev)) { seenK[key] = o; return true; }
+        out.dropped++;
+        return false;
+      });
+      src.forEach(function (o) {
         var K = o.strike;
         if (!fin(K) || K <= 0) return;
         if (K < loK || K > hiK) return;
@@ -112,6 +135,9 @@
           : (last != null ? last : null);
         if (!(mid > 0)) { out.dropped++; return; }
         if (bid === 0 && ask === 0) { out.dropped++; return; }
+        // 單邊報價（bid 冇、只有 ask=5 呢類佔位值）嘅 mid 係假的，
+        // 用佢反解 IV 會得出荒謬值。冇 bid 亦冇 last 就當廢合約。
+        if (bid == null && last == null) { out.dropped++; return; }
 
         // IV 曲面用歐式反解：OTM 合約提前行權溢價≈0，歐美差異可忽略，
         // 但二元樹會令每次 Newton 迭代慢一個數量級（實測 12 檔評分 152s → 目標 <20s）
@@ -253,7 +279,14 @@
     // 12%：每日扫描用嘅系收市后数据，买卖差必然拉阔。实测 BAC 8.6% / XOM 11.8% 都系
     // 正常大股，用 6% 会误剔一大堆。阔价差自然会被 liq 评分维度扣分，唔使硬剔。
     // 真正垃圾嘅（WBD 66.7% / V 13.1%）依然过唔到。
+    //
+    // 但纯百分比对「低权利金」唔公平：BAC ATM mid 得 $1.64，价差 $0.20 就系 12.2%；
+    // MA mid $11.25，价差 $1.50 就系 13.3%。两档都系流动性极好嘅大票（OI 5000 / 2400），
+    // 用百分比硬剔会剔除一批其实落得成单嘅标的。
+    // 所以改成「百分比 或 绝对价差」两条路，任一条达标就放行：
+    // 绝对 0.60 美元以内，对 1 张合约 = 60 美元成本，属可接受范围。
     spreadPctMax: 12,       // %
+    spreadAbsMax: 0.60,     // 美元
     midMin: 0.35,
     // 500 而唔系 1500：ATM OI 会因为「主到期日啱啱冇成交」而偏低，但唔代表成档唔做得
     // （实测 CSCO/JPM/CRM 被 1500 误剔）。流动性已经由 liq 评分维度处理，硬门槛只剔极端。
@@ -272,9 +305,18 @@
     if (!m.exps || m.exps.length < LIMITS.expiriesMin) fail.push('到期日不足 3 个');
     if (fin(m.strikes) && m.strikes < LIMITS.strikesMin)
       fail.push('主到期日可用行权价 ' + m.strikes + ' 个（需 ≥' + LIMITS.strikesMin + '，Δ0.15–0.85）');
-    if (fin(m.atmSpreadPct) && m.atmSpreadPct > LIMITS.spreadPctMax)
-      // 唔好用 '%.1f%%'.replace() —— replace 只换第一个，%% 会原样留低显示成「6.6%%」
-      fail.push('ATM 价差 ' + m.atmSpreadPct.toFixed(1) + '% 过宽');
+    // 双边有货：砌 straddle / 铁鹰都要求同一到期日 ATM 附近 call + put 同时报得成价。
+    // 实测 PANW 全条链都被 Nasdaq 的鬼数据污染（bid=null、ask=5），
+    // 结果每个到期日只得 3–4 个可用合约、ATM 一边空 → 强行拗结构只会出半只契。
+    if (m.twoSided === false)
+      fail.push('ATM 附近只有单边报价，无法配对做组合');
+    // 价差：百分比「或」绝对金额，任一条过关就放行（低权利金大票用绝对金额更公平）
+    if (fin(m.atmSpreadPct) && fin(m.atmMid)) {
+      var absSpread = m.atmSpreadPct / 100 * m.atmMid;
+      if (m.atmSpreadPct > LIMITS.spreadPctMax && absSpread > LIMITS.spreadAbsMax)
+        // 唔好用 '%.1f%%'.replace() —— replace 只换第一个，%% 会原样留低显示成「6.6%%」
+        fail.push('ATM 价差 ' + m.atmSpreadPct.toFixed(1) + '%（$' + absSpread.toFixed(2) + '）过宽');
+    }
     if (fin(m.atmMid) && m.atmMid < LIMITS.midMin) fail.push('ATM 权利金低于 $0.35');
     if (fin(m.atmOi) && m.atmOi < LIMITS.atmOiMin)
       fail.push('ATM 附近 OI ' + Math.round(m.atmOi) + ' 不足 ' + LIMITS.atmOiMin);
@@ -285,6 +327,14 @@
   /* ==========================================================================
    * 3. 單檔指標計算
    * ======================================================================== */
+  /** "Sep 24, 2026" / "2026-09-24" → "2026-09-24" */
+  function parseAsOf(s) {
+    if (!s || typeof s !== 'string') return null;
+    var t = Date.parse(s);
+    if (!isFinite(t)) return null;
+    return new Date(t).toISOString().slice(0, 10);
+  }
+
   function buildMetrics(rec, opts) {
     opts = opts || {};
     var r = fin(opts.rate) ? opts.rate : RATE_DEFAULT;
@@ -293,6 +343,8 @@
     var m = { symbol: rec.symbol, name: q.name || null, price: S,
       change: q.change, changePct: q.changePct, sector: q.sector,
       marketCap: q.marketCap, missing: rec.missing || [] };
+    // 數據基準日：優先用 raw 頂層 date（抓取當日），退回行情 asOf（如 "Sep 24, 2026"）
+    m.asOfDate = opts.asOfDate || rec.asOfDate || parseAsOf(q.asOf) || null;
 
     if (!fin(S) || S <= 0) { m.fatal = '无股价'; return m; }
     m.dividend = 0;   // Nasdaq 冇穩定息率，保守用 0
@@ -348,7 +400,12 @@
     }
 
     // ---- 期權鏈 ----
-    var now = Date.now();
+    // 用「數據日期」做基準，唔用系統時鐘。
+    // 用 Date.now() 的話，同一份 raw 隔幾日重跑會得到完全唔同嘅結果
+    // （實測：NVDA 由 IV30 31.4%/BUY_VOL 變成 49.8%/EARNINGS），
+    // 因為 DTE 全部縮短、選中嘅到期日同 ATM 合約都變晒 —— 結果唔可重現。
+    var asOf = Date.parse((m.asOfDate || '') + 'T20:00:00Z');
+    var now = isFinite(asOf) ? asOf : Date.now();
     var exps = [];
     var cands = [];
     (rec.chains || []).forEach(function (ch) {
@@ -392,14 +449,31 @@
     // 实测 DELL 最接近 38 天嗰个到期日得 1 个可用合约（嗰日零成交，Nasdaq 返嘅系理论价、
     // 买卖差 2–12%），但隔篱嗰日有 50 个。净按「接近 38 天」拣会成档被误判为流动性不足。
     // 正确做法：先筛掉合约数唔达标嘅到期日，再喺达标嗰批入面拣最接近 38 天。
+    //
+    // 但「合约数达标」仲唔够 —— 实测 PANW 2026-10-16 有 4 个可用合约，
+    // 全部集中喺 400C / 450C / 350P / 360P，ATM 两边完全冇成交。
+    // 要砌 straddle 一定要同一 K 嘅 call + put 同时有货，所以要额外要求
+    // 「ATM 附近同时有 call 同 put」，否则会拣中一个只能做单腿嘅日子。
+    function twoSided(e) {
+      if (!e || !e.rows || !e.atm) return false;
+      var tol = 2.5 * strikeStep(e.rows);
+      var near = e.rows.filter(function (x) { return Math.abs(x.K - e.atm.K) <= tol; });
+      return near.some(function (x) { return x.kind === 'call'; }) &&
+             near.some(function (x) { return x.kind === 'put'; });
+    }
     var withAtm = exps.filter(function (e) { return e.atm && e.contracts > 0; });
-    var qualified = withAtm.filter(function (e) { return e.contracts >= LIMITS.strikesMin; });
+    var qualified = withAtm.filter(function (e) {
+      return e.contracts >= LIMITS.strikesMin && twoSided(e);
+    });
+    // 逐級放寬：先要「够多合约 + 双边有货」；再唔得就「双边有货」；最后才退回「有 ATM」
+    if (!qualified.length) qualified = withAtm.filter(twoSided);
     var pool = qualified.length ? qualified : withAtm;
     var pick = null, bestScore = Infinity;
     pool.forEach(function (e) {
       var sc = Math.abs(e.dte - 38);
       if (sc < bestScore) { bestScore = sc; pick = e; }
     });
+    m.twoSided = pick ? twoSided(pick) : false;
     m.picked = pick;
     if (pick) {
       m.dte = pick.dte;
@@ -486,9 +560,14 @@
       cand.push({ tag: 'EARNINGS', reason: '距财报 ' + m.dEarn + ' 天，可选用 ' + m.earnDte + ' 天到期覆盖' });
     }
     // EARNINGS：所選到期日會跨過財報 —— 呢個係被動踩雷，必須提示。
-    // 實測 12 檔入面有 4 檔中招（INTC/AAPL/PLTR/MSTR），唔標出嚟會當普通收租去做。
-    if (m.dEarn != null && m.dEarn > 10 && fin(m.dte) && m.dEarn <= m.dte + 7) {
-      cand.push({ tag: 'EARNINGS', reason: '所选 ' + m.dte + ' 天到期会跨过 ' + m.dEarn +
+    // 但**唔可以**搶走主標籤：Q3 財報季（10 月中至 11 月）期間，
+    // 幾乎所有 30–35 天期權都跨財報，實測 60 檔有 19 檔中招，
+    // 全部變「财报事件」會令收租/買波嘅真信號被埋沒。
+    // 所以跨財報只做 warning 徽章 + 扣分（見 scoreOne 的 earnPenalty），主標籤由策略話事。
+    m.crossEarnings = (m.dEarn != null && m.dEarn > 10 && fin(m.dte) && m.dEarn <= m.dte + 7);
+    if (m.crossEarnings) {
+      cand.push({ tag: 'EARNINGS', warnOnly: true,
+        reason: '所选 ' + m.dte + ' 天到期会跨过 ' + m.dEarn +
         ' 天后的财报 → 持仓期内有跳空 + IV crush，不适合裸卖' });
     }
 
@@ -510,7 +589,11 @@
     // 係兩個 horizon，所以 IVR 唔做硬性閘門，只喺 reason 度交代。
     var ivLow = vrRel <= 0.30 || (fin(m.vr) && m.vr <= 0.92);
     var ivVeryLow = fin(m.vr) && m.vr <= 0.80;         // 極低估，唔使等動能確認
-    if (ivLow && (volSurging || bigMove || ivVeryLow || ivrRel <= 0.30)) {
+    // IVR 極低可以加碼，但前提係 VR 唔可以貴過 1.0。
+    // 實測 IREN：IV Rank 1（一年最低）但 VR 1.06（IV 貴過 HV20 6%）——
+    // 若單靠 IVR 就放行，會砌出「IV 显著折价」嘅假標籤，叫人喺貴價買波。
+    var ivrAddon = ivrRel <= 0.30 && fin(m.vr) && m.vr <= 1.00;
+    if (ivLow && (volSurging || bigMove || ivVeryLow || ivrAddon)) {
       cand.push({ tag: 'BUY_VOL', reason: 'IV 仅 HV 的 ' + (m.vr * 100).toFixed(0) + '%' +
         (fin(m.ivRank) ? '、IV Rank ' + m.ivRank.toFixed(0) : '') + '，' +
         (volSurging ? '20日波动已达60日 ' + (m.hv20 / m.hv60).toFixed(1) + '×'
@@ -518,8 +601,9 @@
     }
 
     // SELL_PREMIUM
-    // 財報喺到期日之後就算安全（+2 日防財報日期改期）。之前用 +7 太嚴，
-    // 搞到 12 檔入面 8 檔被判「唔安全」，SELL_PREMIUM 一個都出唔到。
+    // 財報喺到期日之後就算安全（+2 日防財報日期改期）。
+    // 跨財報唔再硬性阻擋 —— 改由 crossEarnings 徽章 + 扣分處理，
+    // 否則財報季期間成個池嘅 SELL_PREMIUM 信號都會被吞。
     var earnSafe = (m.dEarn == null) || (fin(m.dte) && m.dEarn > m.dte + 2);
     // ts（期限結構斜率）唔做硬閘門——實測大部份標的 ts<0.95（遠月有財報溢價），
     // 但向下斜對賣方唔係壞事。ts 嘅作用交畀評分維度（WEIGHT.ts）處理。
@@ -537,8 +621,13 @@
         (fin(m.atr14Pct) ? '、ATR14 ' + m.atr14Pct.toFixed(1) + '%' : '') + '、波动收敛、无近期催化' });
     }
 
-    // 按優先序排：reasons[0] 必須係主標籤嘅理由，否則 UI 會顯示「卖方收租」配一句跨財報警告
-    cand.sort(function (a, b) { return PRIORITY.indexOf(a.tag) - PRIORITY.indexOf(b.tag); });
+    // 按優先序排：reasons[0] 必須係主標籤嘅理由，否則 UI 會顯示「卖方收租」配一句跨財報警告。
+    // warnOnly 嘅候選（跨財報警告）排最後 —— 佢只係徽章，唔應該搶主標籤。
+    function rank(c) {
+      var i = PRIORITY.indexOf(c.tag);
+      return (c.warnOnly ? 100 : 0) + (i < 0 ? 99 : i);
+    }
+    cand.sort(function (a, b) { return rank(a) - rank(b); });
     var tags = cand.map(function (c) { return c.tag; });
     reasons = cand.map(function (c) { return c.reason; });
     var primary = null;
@@ -546,12 +635,21 @@
       if (tags.indexOf(PRIORITY[i]) >= 0) { primary = PRIORITY[i]; break; }
     }
     if (!primary) {
-      // 一個都冇觸發：誠實講「今日冇信號」。唔好扮係震盪機會呃自己。
-      primary = 'NEUTRAL';
-      tags = ['NEUTRAL'];
-      reasons = ['暂无明确信号（IV/HV ' + (fin(m.vr) ? m.vr.toFixed(2) : '—') +
-        '、IV Rank ' + (fin(m.ivRank) ? m.ivRank.toFixed(0) : '—') +
-        '、ATR14 ' + (fin(m.atr14Pct) ? m.atr14Pct.toFixed(1) + '%' : '—') + '），今日不勉强'];
+      // 一個都冇觸發。分兩種情況講清楚：
+      //   (a) 跨財報 → 標「财报事件」，因為呢個先係最值得注意嘅事實
+      //   (b) 真係乜都冇 → 標「暂无信号」
+      if (m.crossEarnings) {
+        primary = 'EARNINGS';
+        tags = ['EARNINGS'];
+        reasons = ['所选到期会跨过 ' + m.dEarn + ' 天后的财报，但 IV/HV ' +
+          (fin(m.vr) ? m.vr.toFixed(2) : '—') + ' 未到极端水平（唔够收租亦唔够买波）→ 观望'];
+      } else {
+        primary = 'NEUTRAL';
+        tags = ['NEUTRAL'];
+        reasons = ['暂无明确信号（IV/HV ' + (fin(m.vr) ? m.vr.toFixed(2) : '—') +
+          '、IV Rank ' + (fin(m.ivRank) ? m.ivRank.toFixed(0) : '—') +
+          '、ATR14 ' + (fin(m.atr14Pct) ? m.atr14Pct.toFixed(1) + '%' : '—') + '），今日不勉强'];
+      }
     }
     return { primary: primary, tags: tags, reasons: reasons };
   }
@@ -666,6 +764,8 @@
         out.note = 'IV 被低估，用 debit 结构博波动放大；注意 theta 流血';
       }
     } else if (tag === 'EARNINGS') {
+      // 優先搵 ATM 同行權價；搵唔到就降級用最接近 0.5Δ 嘅 call + put。
+      // 兩者都搵唔到時唔好砌空結構 —— 寧願明確講「流動性不足」。
       var epair = pickPairAt(atmK);
       var ec = epair.call || pickByDelta('call', 0.5);
       var ep = epair.put || pickByDelta('put', 0.5);
@@ -685,8 +785,13 @@
         out.maxLoss = ec.mid * 100;
       }
       out.note = 'IV crush 风险高；straddle 定价 ÷ 历史财报单日变动 决定买定卖';
-      out.dte = m.earnDte || m.dte;
-      out.expiry = m.earnExpiry || m.expiry;
+      // 只喺真係搵到財報周期權先改用嗰個到期日。
+      // 之前無條件覆蓋成 m.earnExpiry，但 pickedRows 係「主到期日」嘅合約，
+      // 兩者唔同 expiry 時就會出現「腿喺 A 到期、標籤寫 B 到期」嘅錯配（實測 PANW）。
+      if (ec || ep) {
+        out.dte = m.earnDte || m.dte;
+        out.expiry = m.earnExpiry || m.expiry;
+      }
     } else if (tag === 'SQUEEZE_FLOW') {
       var dc = pickByDelta('call', 0.6), lc = pickByDelta('call', 0.35);
       out.name = 'Bull Call Debit Spread';
@@ -844,7 +949,14 @@
       if (dir !== 0) used += WEIGHT[k];
     });
     // 方向係數為 0 嘅維度唔扣分，改按 0.5 中性算（上面已用 0.5），所以 used 直接係 100
-    var score = cl(total, 0, 100);
+    var score = total;
+
+    // 跨財報扣分：唔可以硬性阻擋（財報季會吞晒所有信號），
+    // 但持倉期內有跳空 + IV crush，實際風險高好多，所以直接扣。
+    // 扣 8 分：足夠令佢跌落「观察」而唔係「值得做」，但唔會抹殺原本嘅優勢。
+    if (m.crossEarnings) score -= 8;
+
+    score = cl(score, 0, 100);
 
     // 至少兩個維度獨立觸發，抑制多重比較假陽性
     var triggers = 0;
@@ -869,7 +981,7 @@
     var results = [];
 
     recs.forEach(function (rec) {
-      var m = buildMetrics(rec, { rate: rate });
+      var m = buildMetrics(rec, { rate: rate, asOfDate: raw.date });
       results.push({ m: m, rec: rec });
     });
 
@@ -947,6 +1059,7 @@
         em1: m.em1 ? { dollars: m.em1.dollars, percent: m.em1.percent, lower: m.em1.lower, upper: m.em1.upper } : null,
         probUp5: m.probUp,
         earningsDate: m.earningsDate || null, dEarn: m.dEarn != null ? m.dEarn : null,
+        crossEarnings: !!m.crossEarnings,
         earnDte: m.earnDte || null, earnIv: m.earnIv || null,
         rating: m.rating, ratingCount: m.ratingCount,
         daysToCover: m.daysToCover, shortFloatPct: m.shortFloatPct,

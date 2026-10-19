@@ -175,9 +175,14 @@
     var t = (tags && tags[r.tag]) || { label: r.tag || '—', short: '?', color: '#94a3b8', desc: '' };
     var st = r.structure || null;
 
-    // 副标签徽章（剔除主标签）
+    // 副标签徽章（剔除主标签）。跨財報單獨用 ⚠ 樣式，
+    // 因為佢喺財報季會出現喺大量標的身上，普通徽章會令版面好亂。
     var badges = (r.tags || []).filter(function (k) { return k !== r.tag; }).map(function (k) {
       var b = (tags && tags[k]) || { label: k, color: '#94a3b8' };
+      if (k === 'EARNINGS' && r.tag !== 'EARNINGS') {
+        return '<span class="scan-badge is-warn">⚠ 跨財報' +
+          (r.dEarn ? '（' + r.dEarn + '天）' : '') + '</span>';
+      }
       return '<span class="scan-badge" style="--chip:' + esc(b.color) + '">' + esc(b.label) + '</span>';
     }).join('');
 

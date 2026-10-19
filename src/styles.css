@@ -1023,3 +1023,10 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
   background: var(--c-surface-3); font-variant-numeric: tabular-nums;
 }
 .sc-expiry b { color: var(--c-text); font-weight: 700; }
+
+/* 跨財報警告徽章：財報季會大量出現，用低調的橙紅而唔好搶主標籤 */
+.scan-badge.is-warn {
+  background: var(--c-warn-soft);
+  border-color: rgba(239, 108, 77, .38);
+  color: var(--c-warn-strong);
+}
