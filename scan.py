@@ -397,6 +397,12 @@ def main():
         print("→ 跳過抓取，讀取 %s" % raw_path)
         with io.open(raw_path, "r", encoding="utf-8") as f:
             raw = json.load(f)
+        # 用 raw 檔自己嘅日期，唔用系統時鐘。
+        # 否則用 9/25 嘅 raw 重跑會輸出 scan-2026-10-19.json（今日），
+        # 之後再按日期對比／重跑就會亂晒龍，亦會蓋錯檔。
+        if raw.get("date"):
+            today = raw["date"]
+            print("→ 數據日期沿用 raw 檔：%s" % today)
     else:
         if args.symbols:
             universe = [{"symbol": s.strip().upper()} for s in args.symbols.split(",") if s.strip()]

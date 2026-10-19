@@ -49,6 +49,24 @@ jobs:
       - name: 扫描全市场（成交额 Top 60）
         run: python3 scan.py --top 60 --workers 8
 
+      - name: 校验扫描结果（防止部署空页面）
+        # 如果 Nasdaq 挡咗 CI IP，scan.py 可能交出「0 档合格」嘅白卷。
+        # 呢种情况宁可直接 fail，保留昨日嘅页面，好过用空页面盖掉。
+        run: |
+          python3 - <<'PY'
+          import json, io, sys
+          d = json.load(io.open('scan/latest.json', encoding='utf-8'))
+          s = d.get('summary', {})
+          print('扫描 %s · 合格 %s · 机会 %s · 观察 %s' % (
+              s.get('scanned'), s.get('survived'), s.get('actionable'), s.get('watch')))
+          if not s.get('scanned'):
+              sys.exit('❌ 一档都未抓到，Nasdaq API 可能挡咗 CI IP')
+          if not s.get('survived'):
+              sys.exit('❌ 全部标的被剔除，数据质量异常（鬼数据 / 全部零成交）')
+          if not s.get('actionable') and not s.get('watch'):
+              sys.exit('❌ 既无机会也无观察项，判定为数据异常')
+          PY
+
       - name: 抓当日首选标的的完整期权链（供 IV 分析台用）
         # 净烤扫描数据嘅话，IV 分析台会落到 AVGO demo 数据。
         # 多抓当日第一名，用户点「打开分析台」就有真实期权链可砌策略。
