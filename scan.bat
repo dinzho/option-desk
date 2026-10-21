@@ -2,10 +2,11 @@
 rem =====================================================================
 rem  OptionDesk 每日扫描一键脚本（Windows）
 rem  ---------------------------------------------------------------
-rem  做三件事：
+rem  做四件事：
 rem    1. python scan.py    —— 抓全市场 + 评分（约 4-5 分钟，需联网）
-rem    2. python build.py   —— 把扫描结果 + PLTR 快照烤入单档 HTML
-rem    3. copy 到工作目录    —— H:\workbuddy輸出\眾包數據\OptionDesk.html
+rem    2. python review.py  —— 績效覆盤（跟進過往建議）
+rem    3. python build.py   —— 把扫描结果 + 績效 + PLTR 快照烤入单档 HTML
+rem    4. copy 到工作目录    —— H:\workbuddy輸出\眾包數據\OptionDesk.html
 rem
 rem  前置要求（只需做一次）：
 rem    - Python 3.10+（python.exe 在 PATH）
@@ -26,15 +27,18 @@ rem ---- 1. 扫描（抓取 + 评分）----
 python scan.py --top 150 --workers 8
 if errorlevel 1 goto :fail
 
-rem ---- 2. 烤入单档 HTML（有快照就烤，无就纯扫描版）----
+rem ---- 2. 績效覆盤（跟進過往可出手建議，失敗都照行）----
+python review.py || echo 覆盤失敗，用舊績效繼續
+
+rem ---- 3. 烤入单档 HTML（有快照就烤，无就纯扫描版）----
 if exist snapshot-PLTR.json (
-  python build.py --scan scan\latest.json --snapshot snapshot-PLTR.json
+  python build.py --scan scan\latest.json --snapshot snapshot-PLTR.json --perf scan\perf.json
 ) else (
-  python build.py --scan scan\latest.json
+  python build.py --scan scan\latest.json --perf scan\perf.json
 )
 if errorlevel 1 goto :fail
 
-rem ---- 3. 复制到工作目录（路径唔同就改下面）----
+rem ---- 4. 复制到工作目录（路径唔同就改下面）----
 set "DEST=H:\workbuddy輸出\眾包數據"
 if exist "%DEST%" (
   copy /y OptionDesk.html "%DEST%\OptionDesk.html" >nul
