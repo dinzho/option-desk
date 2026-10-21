@@ -1,5 +1,5 @@
 const { chromium } = require('playwright-core');
-const URL = process.argv[2] || 'https://tranquil-kashata-30dac0.netlify.app/';
+const URL = process.argv[2] || 'https://option-desk.netlify.app/';
 
 (async () => {
   const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
