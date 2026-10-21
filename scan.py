@@ -370,7 +370,7 @@ def scan_one(sym, months=3, verbose=False):
 # ---------------------------------------------------------------------------- 主流程
 def main():
     ap = argparse.ArgumentParser(description="OptionDesk 每日掃描器（免費、免 key）")
-    ap.add_argument("--top", type=int, default=60, help="掃描池大小（默認 60）")
+    ap.add_argument("--top", type=int, default=150, help="掃描池大小（默認 150）")
     ap.add_argument("--symbols", default=None, help="直接指定代碼，逗號分隔（跳過 screener）")
     ap.add_argument("--workers", type=int, default=8, help="並行數（默認 8）")
     ap.add_argument("--months", type=float, default=3, help="期權到期日範圍（月）")

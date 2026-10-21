@@ -1,9 +1,11 @@
 # Netlify 配置
 # HTML 唔使再 build —— GitHub Actions 已经烤好数据放入 public/
-# Netlify 只负责托管，所以 build command 留空，部署近乎零耗时。
+# Netlify 只负责托管，所以 build command 留空，部署近乎即时。
 [build]
   publish = "public"
   command = ""
+  # 伺服器端代理：令瀏覽器可以讀 Nasdaq API（繞過 CORS + 公共代理失效）
+  functions = "netlify/functions"
 
 # 单页应用无路由需求，唔使 redirect rule
 [build.processing]

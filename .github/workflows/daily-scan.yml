@@ -46,8 +46,8 @@ jobs:
             echo "::warning::Nasdaq API 由 CI 访问异常（HTTP $CODE），后续扫描可能交白卷"
           fi
 
-      - name: 扫描全市场（成交额 Top 60）
-        run: python3 scan.py --top 60 --workers 8
+      - name: 扫描全市场（成交额 Top 150）
+        run: python3 scan.py --top 150 --workers 8
 
       - name: 校验扫描结果（防止部署空页面）
         # 如果 Nasdaq 挡咗 CI IP，scan.py 可能交出「0 档合格」嘅白卷。

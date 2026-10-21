@@ -18,8 +18,15 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (E) {
   'use strict';
 
-  /* ---------- CORS 代理（免费公开服务，按可靠性排序） ---------- */
+  /* ---------- 数据通道（按可靠性排序） ----------
+   * netlify：Netlify Function 伺服器端代理。部署喺 Netlify 時一定可用，
+   *   無 CORS、無公共代理失效問題 —— 呢個係線上版主力通道。
+   *   本地 file:// 打開時會解析失敗，自動 fallback 到下面嗰批。
+   * local：隨附 proxy.py 本地代理，純本地開發用。
+   * 其餘：公共 CORS 代理，大部分已失效，僅作最後兜底。
+   */
   var PROXIES = [
+    { id: 'netlify', name: 'Netlify 伺服器', build: function (u) { return '/.netlify/functions/nasdaq?url=' + encodeURIComponent(u); } },
     { id: 'local', name: '本地代理 (推荐)', build: function (u) { return 'http://127.0.0.1:8787/?url=' + encodeURIComponent(u); }, local: true },
     { id: 'allorigins', name: 'AllOrigins', build: function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
     { id: 'allorigins-get', name: 'AllOrigins(get)', build: function (u) { return 'https://api.allorigins.win/get?url=' + encodeURIComponent(u); }, parse: function (j) { return j && j.contents ? j.contents : null; } },

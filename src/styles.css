@@ -867,6 +867,36 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 }
 .scan-card:hover { border-color: var(--c-border-strong); }
 
+/* 「今日可出手」/「观察名单」分区 */
+.scan-section { margin-bottom: 20px; }
+.scan-sec-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 4px 2px 10px;
+}
+.scan-sec-head .ss-title { font-size: var(--fs-lg); font-weight: 800; color: var(--c-text); }
+.scan-sec-head .ss-count {
+  font-size: var(--fs-eyebrow); font-weight: 700; padding: 2px 9px; border-radius: 999px;
+  background: color-mix(in srgb, var(--c-faint) 16%, transparent); color: var(--c-text-2);
+}
+.scan-sec-head .ss-note { font-size: var(--fs-eyebrow); color: var(--c-faint); }
+.scan-section.is-act .ss-title { color: var(--c-accent); }
+.scan-section.is-act .ss-count {
+  background: color-mix(in srgb, var(--c-accent) 18%, transparent); color: var(--c-accent);
+}
+.scan-section.is-act .scan-list { padding: 4px; border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--c-accent) 5%, transparent); }
+
+/* 可出手卡：左側加粗醒目條 + 角標 */
+.scan-card.is-act {
+  border-color: color-mix(in srgb, var(--c-accent) 45%, var(--c-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-accent) 22%, transparent);
+}
+.scan-card.is-act .sc-act-ribbon {
+  align-self: flex-start; font-size: var(--fs-eyebrow); font-weight: 700;
+  color: var(--c-accent); background: color-mix(in srgb, var(--c-accent) 14%, transparent);
+  padding: 2px 9px; border-radius: 999px; margin-bottom: -2px;
+}
+
 .sc-head { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; }
 .sc-sym { display: flex; flex-direction: column; min-width: 0; }
 .sc-sym b { font-size: var(--fs-lg); font-weight: 700; color: var(--c-text); letter-spacing: .01em; }

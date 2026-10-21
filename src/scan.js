@@ -43,17 +43,19 @@
     var act = sm.actionable || 0;
     var watch = sm.watch || 0;
     var byTag = sm.byTag || {};
+    // 「观察名单」专区 = 全部非可出手标的（同下方分区一致，唔好令两个数字对唔上）
+    var rest = (sm.survived || 0) - act;
 
     // 结论：讲人话，唔好讲数字
     var tone, headline, sub;
     if (act >= 3) {
       tone = 'good';
       headline = '今日有 ' + act + ' 个值得做的机会';
-      sub = '另有 ' + watch + ' 个观察项。优先看下面排最前的几张卡。';
+      sub = '已列喺下面「🎯 今日可出手」专区，其余 ' + rest + ' 个摆观察名单。';
     } else if (act > 0) {
       tone = 'good';
       headline = '今日有 ' + act + ' 个机会，其余一般';
-      sub = '机会不多，挑最优质的那个做，不用贪多。另 ' + watch + ' 个观察项。';
+      sub = '机会唔多，挑最优质嗰个做，唔使贪多。已列喺「🎯 今日可出手」专区，其余 ' + rest + ' 个摆观察名单。';
     } else if (watch >= 3) {
       tone = 'warn';
       headline = '今日无强信号，有 ' + watch + ' 个可观察';
@@ -174,6 +176,8 @@
   function renderCard(r, tags) {
     var t = (tags && tags[r.tag]) || { label: r.tag || '—', short: '?', color: '#94a3b8', desc: '' };
     var st = r.structure || null;
+    // 可出手角标：同 summary.actionable 同一判定
+    var act = (r.score || 0) >= 65 && r.multiTrigger;
 
     // 副标签徽章（剔除主标签）。跨財報單獨用 ⚠ 樣式，
     // 因為佢喺財報季會出現喺大量標的身上，普通徽章會令版面好亂。
@@ -219,7 +223,8 @@
     }
 
     return '' +
-      '<article class="scan-card" data-sym="' + esc(r.symbol) + '" data-tag="' + esc(r.tag) + '" style="--chip:' + esc(t.color) + '">' +
+      '<article class="scan-card' + (act ? ' is-act' : '') + '" data-sym="' + esc(r.symbol) + '" data-tag="' + esc(r.tag) + '" style="--chip:' + esc(t.color) + '">' +
+        (act ? '<div class="sc-act-ribbon">✓ 今日可出手</div>' : '') +
         '<div class="sc-head">' +
           '<div class="sc-sym">' +
             '<b>' + esc(r.symbol) + '</b>' +
@@ -336,7 +341,7 @@
     if (!data || !data.results) {
       el.innerHTML = '<div class="scan-empty">' +
         '<b>还未跑今日扫描</b>' +
-        '<p>运行 <code>python3 scan.py --top 60</code> 生成数据，再 <code>python3 build.py --scan scan/latest.json</code> 烤入本页。</p>' +
+        '<p>运行 <code>python3 scan.py --top 150</code> 生成数据，再 <code>python3 build.py --scan scan/latest.json</code> 烤入本页。</p>' +
         '</div>';
       return;
     }
@@ -356,17 +361,45 @@
         '" style="--chip:' + esc(color) + '">' + esc(label) + '<b>' + counts[k] + '</b></button>';
     }).join('');
 
-    var shown = S.filter === 'ALL' ? all : all.filter(function (r) { return r.tag === S.filter; });
+    // 可出手判定同 score.js 嘅 summary.actionable 一致：评分 ≥65 且多维度确认
+    var isAct = function (r) { return (r.score || 0) >= 65 && r.multiTrigger; };
+
+    var bodyHtml;
+    if (S.filter === 'ALL') {
+      var act = all.filter(isAct);
+      var rest = all.filter(function (r) { return !isAct(r); });
+      var actSec = act.length
+        ? '<div class="scan-list">' + act.map(function (r) { return renderCard(r, tags); }).join('') + '</div>'
+        : '<div class="scan-empty">今日无达到「可出手」标准的标的。空仓等待也是一种操作，唔使勉强落单。</div>';
+      var watchSec = rest.length
+        ? '<div class="scan-section is-watch">' +
+          '<div class="scan-sec-head"><span class="ss-title">📋 观察名单</span>' +
+          '<span class="ss-count">' + rest.length + ' 个</span>' +
+          '<span class="ss-note">未够条件出手 · 摆住等信号</span></div>' +
+          '<div class="scan-list">' + rest.map(function (r) { return renderCard(r, tags); }).join('') + '</div>' +
+          '</div>'
+        : '';
+      bodyHtml =
+        '<div class="scan-section is-act">' +
+          '<div class="scan-sec-head"><span class="ss-title">🎯 今日可出手</span>' +
+          '<span class="ss-count">' + act.length + ' 个</span>' +
+          '<span class="ss-note">评分 ≥65 且多维度同时确认 · 已排最前</span></div>' +
+          actSec +
+        '</div>' + watchSec;
+    } else {
+      var shown = all.filter(function (r) { return r.tag === S.filter; });
+      bodyHtml = '<div class="scan-list">' +
+        (shown.length ? shown.map(function (r) { return renderCard(r, tags); }).join('')
+          : '<div class="scan-empty">这个标签今日无标的</div>') +
+        '</div>';
+    }
 
     el.innerHTML =
       renderVerdict(data) +
       '<div class="scan-tabs">' + tabsHtml + '</div>' +
       '<div class="chart-box"><div class="chart-title">VR × IV Rank 分布（气泡大小 = 未平仓量）</div>' +
         renderScatter(all, tags) + '</div>' +
-      '<div class="scan-list">' +
-        (shown.length ? shown.map(function (r) { return renderCard(r, tags); }).join('')
-          : '<div class="scan-empty">这个标签今日无标的</div>') +
-      '</div>' +
+      bodyHtml +
       rejectedHtml(data);
 
     bindEvents(el);
