@@ -84,14 +84,21 @@ jobs:
             python3 fetch.py "$SYM" --months 4 || echo "快照抓取失败，退回纯扫描版"
           fi
 
+      - name: 績效覆盤（跟進過往可出手建議）
+        # 讀過往 scan 檔 + 抓歷史價格 → 計 10 日信號命中／到期結算 → 寫 scan/perf.json
+        # 檔案有體積上限（只保留最近 90 筆已結算 + 未結算），唔會撐爆 repo
+        run: python3 review.py
+
       - name: 烤入单档 HTML
         run: |
           SNAP=$(ls -t snapshot-*.json 2>/dev/null | head -1 || true)
+          PERF=""
+          if [ -f scan/perf.json ]; then PERF="--perf scan/perf.json"; fi
           if [ -n "$SNAP" ]; then
             echo "烤入快照: $SNAP"
-            python3 build.py --scan scan/latest.json --snapshot "$SNAP"
+            python3 build.py --scan scan/latest.json --snapshot "$SNAP" $PERF
           else
-            python3 build.py --scan scan/latest.json
+            python3 build.py --scan scan/latest.json $PERF
           fi
           mkdir -p public
           cp OptionDesk.html public/index.html
@@ -124,7 +131,7 @@ jobs:
         run: |
           git config user.name "OptionDesk Bot"
           git config user.email "bot@users.noreply.github.com"
-          git add public/index.html public/summary.md scan/scan-*.json scan/latest.json
+          git add public/index.html public/summary.md scan/scan-*.json scan/latest.json scan/perf.json
           if git diff --cached --quiet; then
             echo "今日数据与昨日相同，跳过提交"
           else
