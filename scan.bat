@@ -23,11 +23,15 @@ echo === OptionDesk 每日扫描 %date% %time% ===
 echo.
 
 rem ---- 1. 扫描（抓取 + 评分）----
-python scan.py --top 60 --workers 8
+python scan.py --top 150 --workers 8
 if errorlevel 1 goto :fail
 
-rem ---- 2. 烤入单档 HTML（扫描 + PLTR 快照）----
-python build.py --scan scan\latest.json --snapshot snapshot-PLTR.json
+rem ---- 2. 烤入单档 HTML（有快照就烤，无就纯扫描版）----
+if exist snapshot-PLTR.json (
+  python build.py --scan scan\latest.json --snapshot snapshot-PLTR.json
+) else (
+  python build.py --scan scan\latest.json
+)
 if errorlevel 1 goto :fail
 
 rem ---- 3. 复制到工作目录（路径唔同就改下面）----

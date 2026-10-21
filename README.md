@@ -5,7 +5,7 @@
 每日美股收市后自动扫全市场，唔使手打股票代码，开页就见到今日有冇嘢做。
 
 ```
-21:30 UTC（港澳 05:30）→ GitHub Actions 扫成交额 Top 60
+21:30 UTC（港澳 05:30）→ GitHub Actions 扫成交额 Top 150
    → 评分 + 分类 + 生成建议结构 → 烤进单档 HTML → commit
    → Netlify 自动部署 → 朝早开网页就见到今日机会
 ```
@@ -16,11 +16,11 @@
 
 **1. GitHub 建 repo**
 手机浏览器开 [github.com/new](https://github.com/new)（建议开「电脑版网站」），
-名字填 `optiondesk`，选 **Public**（Actions 免费额无上限），**不要**勾选初始化选项。
+名字填 `option-desk`，选 **Public**（Actions 免费额无上限），**不要**勾选初始化选项。
 
 **2. Netlify 连接 repo**
 [app.netlify.com](https://app.netlify.com) → **Add new site → Import an existing project → GitHub**
-→ 选 `optiondesk` → Deploy。（`netlify.toml` 已设好 publish = `public`，通常自动带入）
+→ 选 `option-desk` → Deploy。（`netlify.toml` 已设好 publish = `public`，通常自动带入）
 
 **3. 记住网址**
 Netlify 会给 `xxxxx.netlify.app`。想改靓：**Site settings → Change site name**。
