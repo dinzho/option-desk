@@ -200,6 +200,27 @@
       }).join('');
     }
 
+    // 「點樣落單」—— 每腿寫明買入／賣出，防止 straddle 撳錯一條腿變合成倉
+    // （實測用戶將 Put 腿撀「賣出」，long straddle 變 synthetic long，最大虧由 2315 變 14325）
+    var orderHtml = '';
+    if (st && st.legs && st.legs.length) {
+      var allBuy = st.legs.every(function (L) { return L.act !== 'sell'; });
+      var allSell = st.legs.every(function (L) { return L.act === 'sell'; });
+      var hint = allBuy
+        ? '<span class="ord-hint is-buy">全部腿都係「買入」→ 你係買方，最大虧 = 付落嘅權利金</span>'
+        : allSell
+          ? '<span class="ord-hint is-sell">全部腿都係「賣出」→ 你係賣方，收權利金</span>'
+          : '<span class="ord-hint">買賣混合，每腿方向要跟足</span>';
+      orderHtml = '<div class="scs-order"><span class="ord-tag">點樣落單</span>' +
+        '<span class="ord-legs">' +
+        st.legs.map(function (L) {
+          return '<span class="ord-leg ' + (L.act === 'sell' ? 'is-sell' : 'is-buy') + '">' +
+            (L.act === 'sell' ? '賣出' : '買入') + ' ' + (L.kind === 'put' ? 'Put' : 'Call') + ' ' + L.K +
+            ' @' + money(L.mid) + '</span>';
+        }).join('<span class="ord-plus">＋</span>') +
+        '</span>' + hint + '</div>';
+    }
+
     var profitLine = '';
     if (st) {
       // Straddle 类结构嘅 maxProfit 系 null（上行方向理论上限唔封顶），
@@ -265,6 +286,7 @@
             (r.earningsDate ? '<span class="sc-warn">财报 ' + esc(r.earningsDate) + '</span>' : '') +
           '</div>' +
           '<div class="scs-legs">' + legs + '</div>' +
+          orderHtml +
           '<div class="scs-pnl">' + esc(profitLine) + '</div>' +
           breakEvenHtml(st, r.price) +
           (st.note ? '<div class="scs-note">' + esc(st.note) + '</div>' : '') +

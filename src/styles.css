@@ -969,6 +969,28 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 }
 .scs-legs .leg.sell { background: var(--c-warn-soft); color: var(--c-warn-strong); border-color: rgba(239,108,77,.3); }
 .scs-legs .leg.buy  { background: var(--c-accent-soft); color: var(--c-accent); border-color: rgba(52,211,153,.3); }
+/* 「點樣落單」—— 每腿方向寫到明，防止 straddle 撳錯腿變合成倉 */
+.scs-order {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  margin: 0 0 6px; padding: 5px 8px; border-radius: var(--r-sm);
+  background: var(--c-surface-3); border: 1px dashed var(--c-border);
+}
+.scs-order .ord-tag {
+  flex: 0 0 auto; font-size: var(--fs-eyebrow); font-weight: 700;
+  letter-spacing: 0.04em; color: var(--c-muted);
+}
+.scs-order .ord-legs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.scs-order .ord-leg {
+  font-size: var(--fs-eyebrow); font-weight: 700; padding: 2px 8px;
+  border-radius: var(--r-sm); font-variant-numeric: tabular-nums;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.scs-order .ord-leg.is-buy  { background: var(--c-accent-soft); color: var(--c-accent); border-color: rgba(52,211,153,.35); }
+.scs-order .ord-leg.is-sell { background: var(--c-warn-soft); color: var(--c-warn-strong); border-color: rgba(239,108,77,.35); }
+.scs-order .ord-plus { font-size: var(--fs-eyebrow); font-weight: 700; color: var(--c-faint); }
+.scs-order .ord-hint { flex: 1 1 100%; font-size: var(--fs-eyebrow); color: var(--c-muted); }
+.scs-order .ord-hint.is-buy  { color: var(--c-accent); }
+.scs-order .ord-hint.is-sell { color: var(--c-warn-strong); }
 .scs-pnl { font-size: var(--fs-body); color: var(--c-text); font-variant-numeric: tabular-nums; }
 .scs-note { margin-top: 3px; font-size: var(--fs-eyebrow); color: var(--c-faint); }
 
