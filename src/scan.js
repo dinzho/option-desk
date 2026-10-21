@@ -356,6 +356,89 @@
   function vrCls(v) { return !isNum(v) ? '' : (v >= 1.15 ? 'up' : (v <= 0.92 ? 'down' : '')); }
 
   /* ==========================================================================
+   * 3.5 過往績效面板（review.py 覆盤數據）
+   * ======================================================================== */
+  function renderPerf(perf, tags) {
+    if (!perf || !perf.summary) return '';
+    var s = perf.summary || {};
+    var tt = s.touchTotal || 0, th = s.touchHit || 0;
+    var sd = s.settled || 0, sw = s.settleWin || 0;
+    if (!tt && !sd) {
+      return '<div class="perf-box is-empty">' +
+        '<div class="perf-head"><b>📈 過往績效</b><span class="perf-note">自動覆盤</span></div>' +
+        '<div class="perf-empty">績效追蹤已啟動——今日起每筆「可出手」建議都會自動跟蹤，' +
+        '10 個交易日後開始結算信號命中，到期後結算實際盈虧。樣本會每日累積，勝率數字要睇樣本量。</div>' +
+        '</div>';
+    }
+    var touchRate = tt ? (th / tt * 100) : null;
+    var settleRate = sd ? (sw / sd * 100) : null;
+    var avgPnl = sd ? (s.pnlSum / sd * 100) : null;
+
+    // 分標籤命中率
+    var tagRows = Object.keys(s.byTag || {}).map(function (k) {
+      var t = s.byTag[k];
+      var rate = t.tracked ? (t.touchHit / t.tracked * 100) : 0;
+      var label = (tags[k] && tags[k].label) || k;
+      var color = (tags[k] && tags[k].color) || '#94a3b8';
+      return '<div class="perf-tag" style="--chip:' + esc(color) + '">' +
+        '<span class="pt-name">' + esc(label) + '</span>' +
+        '<span class="pt-bar"><i style="width:' + Math.round(rate) + '%"></i></span>' +
+        '<span class="pt-num">' + t.touchHit + '/' + t.tracked + '</span>' +
+        '</div>';
+    }).join('');
+
+    // 最近紀錄
+    var recs = (perf.records || []).slice(0, 8);
+    var rows = recs.map(function (r) {
+      var sig = r.chk10
+        ? '<span class="pv ' + (r.chk10.hit ? 'is-ok' : 'is-bad') + '">' + (r.chk10.hit ? '✓ 命中' : '✗ 脫靶') + '</span>'
+        : '<span class="pv is-wait">⏳ 跟緊</span>';
+      var exp2;
+      if (r.exp && r.exp.pnlPerLot != null) {
+        var v = r.exp.pnlPerLot;
+        exp2 = '<span class="pv ' + (v > 0 ? 'is-ok' : 'is-bad') + '">' +
+          (v > 0 ? '+' : '−') + '$' + Math.abs(Math.round(v)).toLocaleString() + '</span>';
+      } else if (r.exp) {
+        exp2 = '<span class="pv is-wait">—</span>';
+      } else {
+        exp2 = '<span class="pv is-wait">⏳ 未到期</span>';
+      }
+      return '<tr><td class="pf-date">' + esc(r.date) + '</td>' +
+        '<td><b>' + esc(r.sym) + '</b></td>' +
+        '<td class="pf-struct">' + esc(r.struct || '') + '</td>' +
+        '<td>' + sig + '</td><td>' + exp2 + '</td></tr>';
+    }).join('');
+
+    return '<div class="perf-box">' +
+      '<div class="perf-head"><b>📈 過往績效</b>' +
+      '<span class="perf-note">自動覆盤 · 截至 ' + esc(perf.generated || '') + '</span></div>' +
+      '<div class="perf-stats">' +
+      statCard('信號命中率', touchRate, th + '/' + tt, '10 個交易日內價格進入盈利區間', touchRate == null, 'rate') +
+      statCard('到期勝率', settleRate, sw + '/' + sd, '到期結算每手賺錢嘅比例', settleRate == null, 'rate') +
+      statCard('平均報酬', avgPnl, sd + ' 筆', '每手盈虧 ÷ 收取／付出權利金', avgPnl == null, 'pnl') +
+      '</div>' +
+      (tagRows ? '<div class="perf-tags">' + tagRows + '</div>' : '') +
+      (rows ? '<table class="perf-table"><thead><tr><th>建議日</th><th>股票</th><th>結構</th>' +
+        '<th>10 日信號</th><th>到期結算</th></tr></thead><tbody>' + rows + '</tbody></table>' : '') +
+      '<div class="perf-foot">口徑：買方結構 = 區間被觸及即命中；賣方結構 = 第 10 日收市仍在區間即命中。' +
+      '樣本細時勝率波動大，建議累積 30 筆以上先信。歷史統計唔代表未來表現。</div>' +
+      '</div>';
+  }
+
+  function statCard(label, rate, frac, note, empty, mode) {
+    // mode = 'rate'（命中／勝率，50% 分界）或 'pnl'（報酬，0 分界）
+    var threshold = mode === 'pnl' ? 0 : 50;
+    var val = empty ? '—' : (rate >= 0 ? '+' + rate.toFixed(0) + '%' : rate.toFixed(0) + '%');
+    var cls = empty ? '' : (rate >= threshold ? ' is-ok' : ' is-bad');
+    return '<div class="perf-stat' + cls + '">' +
+      '<span class="ps-label">' + label + '</span>' +
+      '<b class="ps-val">' + val + '</b>' +
+      '<span class="ps-frac">' + esc(frac) + '</span>' +
+      '<span class="ps-note">' + esc(note) + '</span>' +
+      '</div>';
+  }
+
+  /* ==========================================================================
    * 4. 主渲染
    * ======================================================================== */
   function render(el, data) {
@@ -418,6 +501,7 @@
 
     el.innerHTML =
       renderVerdict(data) +
+      renderPerf(window.__DESK_PERF__ || null, tags) +
       '<div class="scan-tabs">' + tabsHtml + '</div>' +
       '<div class="chart-box"><div class="chart-title">VR × IV Rank 分布（气泡大小 = 未平仓量）</div>' +
         renderScatter(all, tags) + '</div>' +
