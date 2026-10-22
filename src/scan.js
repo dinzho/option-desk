@@ -363,7 +363,35 @@
     var s = perf.summary || {};
     var tt = s.touchTotal || 0, th = s.touchHit || 0;
     var sd = s.settled || 0, sw = s.settleWin || 0;
-    if (!tt && !sd) {
+    var hasStats = !!(tt || sd);
+    var recs = perf.records || [];
+
+    // ---- 最近紀錄表（只要有紀錄就一定渲染——用戶要時刻睇到跟緊咩）----
+    var rows = recs.slice(0, 8).map(function (r) {
+      var sig = r.chk10
+        ? '<span class="pv ' + (r.chk10.hit ? 'is-ok' : 'is-bad') + '">' + (r.chk10.hit ? '✓ 命中' : '✗ 脫靶') + '</span>'
+        : '<span class="pv is-wait">⏳ 跟緊</span>';
+      var exp2;
+      if (r.exp && r.exp.pnlPerLot != null) {
+        var v = r.exp.pnlPerLot;
+        exp2 = '<span class="pv ' + (v > 0 ? 'is-ok' : 'is-bad') + '">' +
+          (v > 0 ? '+' : '−') + '$' + Math.abs(Math.round(v)).toLocaleString() + '</span>';
+      } else if (r.exp) {
+        exp2 = '<span class="pv is-wait">—</span>';
+      } else if (r.expiry) {
+        exp2 = '<span class="pv is-wait">⏳ ' + esc(r.expiry.slice(5)) + ' 到期</span>';
+      } else {
+        exp2 = '<span class="pv is-wait">⏳ 未到期</span>';
+      }
+      return '<tr><td class="pf-date">' + esc(r.date) +
+        (r.expiry ? '<i>到期 ' + esc(r.expiry.slice(5)) + '</i>' : '') + '</td>' +
+        '<td><b>' + esc(r.sym) + '</b></td>' +
+        '<td class="pf-struct">' + esc(r.struct || '') + '</td>' +
+        '<td>' + sig + '</td><td>' + exp2 + '</td></tr>';
+    }).join('');
+
+    // ---- 全新手：從未跟過任何建議，先講機制 ---- 
+    if (!hasStats && !recs.length) {
       return '<div class="perf-box is-empty">' +
         '<div class="perf-head"><b>📈 過往績效</b><span class="perf-note">自動覆盤</span></div>' +
         '<div class="perf-empty">績效追蹤已啟動——每日「可出手」建議由系統<b>自動模擬跟單</b>' +
@@ -371,6 +399,7 @@
         '到期以真實市價自動結算盈虧，勝率自動統計。樣本每日自動累積，初期數字波動大，累積 30 筆以上先信。</div>' +
         '</div>';
     }
+
     var touchRate = tt ? (th / tt * 100) : null;
     var settleRate = sd ? (sw / sd * 100) : null;
     var avgPnl = sd ? (s.pnlSum / sd * 100) : null;
@@ -388,31 +417,24 @@
         '</div>';
     }).join('');
 
-    // 最近紀錄
-    var recs = (perf.records || []).slice(0, 8);
-    var rows = recs.map(function (r) {
-      var sig = r.chk10
-        ? '<span class="pv ' + (r.chk10.hit ? 'is-ok' : 'is-bad') + '">' + (r.chk10.hit ? '✓ 命中' : '✗ 脫靶') + '</span>'
-        : '<span class="pv is-wait">⏳ 跟緊</span>';
-      var exp2;
-      if (r.exp && r.exp.pnlPerLot != null) {
-        var v = r.exp.pnlPerLot;
-        exp2 = '<span class="pv ' + (v > 0 ? 'is-ok' : 'is-bad') + '">' +
-          (v > 0 ? '+' : '−') + '$' + Math.abs(Math.round(v)).toLocaleString() + '</span>';
-      } else if (r.exp) {
-        exp2 = '<span class="pv is-wait">—</span>';
-      } else {
-        exp2 = '<span class="pv is-wait">⏳ 未到期</span>';
-      }
-      return '<tr><td class="pf-date">' + esc(r.date) + '</td>' +
-        '<td><b>' + esc(r.sym) + '</b></td>' +
-        '<td class="pf-struct">' + esc(r.struct || '') + '</td>' +
-        '<td>' + sig + '</td><td>' + exp2 + '</td></tr>';
-    }).join('');
+    // 未有統計數字：提示橫幅（講明幾筆跟緊中、最早幾時到期）
+    var hint = '';
+    if (!hasStats) {
+      var exps = recs.filter(function (r) { return r.expiry; })
+        .map(function (r) { return r.expiry; }).sort();
+      hint = '<div class="perf-hint">⏳ <b>' + recs.length + ' 筆建議跟緊中</b>——統計要等到期先有：' +
+        '最早 <b>' + esc(exps.length ? exps[0].slice(5) : '—') + '</b> 到期結算，' +
+        '滿 10 個交易日後出信號命中率。以下係每筆跟蹤詳情。</div>';
+    }
+
+    var headNote = hasStats
+      ? '自動覆盤 · 截至 ' + esc(perf.generated || '')
+      : '自動覆盤 · ' + recs.length + ' 筆跟緊中';
 
     return '<div class="perf-box">' +
       '<div class="perf-head"><b>📈 過往績效</b>' +
-      '<span class="perf-note">自動覆盤 · 截至 ' + esc(perf.generated || '') + '</span></div>' +
+      '<span class="perf-note">' + headNote + '</span></div>' +
+      hint +
       '<div class="perf-stats">' +
       statCard('信號命中率', touchRate, th + '/' + tt, '10 個交易日內價格進入盈利區間', touchRate == null, 'rate') +
       statCard('到期勝率', settleRate, sw + '/' + sd, '到期結算每手賺錢嘅比例', settleRate == null, 'rate') +

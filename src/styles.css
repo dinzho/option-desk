@@ -853,6 +853,13 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 .perf-head b { font-size: var(--fs-md); font-weight: 700; color: var(--c-text); }
 .perf-note { font-size: var(--fs-eyebrow); color: var(--c-faint); }
 .perf-empty { font-size: var(--fs-body); color: var(--c-muted); line-height: 1.6; }
+.perf-hint {
+  font-size: var(--fs-body); color: var(--c-muted); line-height: 1.6;
+  padding: 10px 12px; margin-bottom: 12px;
+  background: var(--c-surface-3); border-radius: var(--r-md);
+  border-left: 3px solid var(--c-accent);
+}
+.perf-hint b { color: var(--c-text); }
 .perf-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
 .perf-stat {
   display: flex; flex-direction: column; gap: 2px; padding: 10px 12px;
@@ -878,6 +885,7 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 .perf-table td { padding: 5px 8px; border-bottom: 1px solid var(--c-border); color: var(--c-text); }
 .perf-table tr:last-child td { border-bottom: 0; }
 .perf-table .pf-date { color: var(--c-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.perf-table .pf-date i { display: block; font-style: normal; font-size: 11px; color: var(--c-faint); margin-top: 1px; }
 .perf-table .pf-struct { color: var(--c-muted); max-width: 220px; }
 .pv { font-weight: 650; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pv.is-ok { color: var(--c-accent); }
