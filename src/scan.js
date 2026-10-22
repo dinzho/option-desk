@@ -366,8 +366,9 @@
     if (!tt && !sd) {
       return '<div class="perf-box is-empty">' +
         '<div class="perf-head"><b>📈 過往績效</b><span class="perf-note">自動覆盤</span></div>' +
-        '<div class="perf-empty">績效追蹤已啟動——今日起每筆「可出手」建議都會自動跟蹤，' +
-        '10 個交易日後開始結算信號命中，到期後結算實際盈虧。樣本會每日累積，勝率數字要睇樣本量。</div>' +
+        '<div class="perf-empty">績效追蹤已啟動——每日「可出手」建議由系統<b>自動模擬跟單</b>' +
+        '（紙面交易，唔使開實盤、唔使手動確認），10 個交易日後自動結算信號命中，' +
+        '到期以真實市價自動結算盈虧，勝率自動統計。樣本每日自動累積，初期數字波動大，累積 30 筆以上先信。</div>' +
         '</div>';
     }
     var touchRate = tt ? (th / tt * 100) : null;
@@ -420,8 +421,10 @@
       (tagRows ? '<div class="perf-tags">' + tagRows + '</div>' : '') +
       (rows ? '<table class="perf-table"><thead><tr><th>建議日</th><th>股票</th><th>結構</th>' +
         '<th>10 日信號</th><th>到期結算</th></tr></thead><tbody>' + rows + '</tbody></table>' : '') +
-      '<div class="perf-foot">口徑：買方結構 = 區間被觸及即命中；賣方結構 = 第 10 日收市仍在區間即命中。' +
-      '樣本細時勝率波動大，建議累積 30 筆以上先信。歷史統計唔代表未來表現。</div>' +
+      '<div class="perf-foot">全部自動完成：每日「可出手」建議自動入帳 → 到期以真實收市價結算，' +
+      '屬系統模擬跟單（紙面交易），唔使開實盤。口徑：買方結構 = 區間被觸及即命中；' +
+      '賣方結構 = 第 10 日收市仍在區間即命中。樣本細時勝率波動大，建議累積 30 筆以上先信。' +
+      '歷史統計唔代表未來表現。</div>' +
       '</div>';
   }
 
