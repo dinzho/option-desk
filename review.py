@@ -153,7 +153,10 @@ def load_scans(scans_dir):
             st = r.get("structure") or {}
             legs = st.get("legs") or []
             be = st.get("breakEven") or {}
-            if not legs or be.get("lower") is None or be.get("upper") is None:
+            # 賣期權收租（SELL_PREMIUM）單邊結構（賣 Put / 賣 Call）只有一邊損平，
+            # 另一邊係無界（價格越過越賺），唔可以因為缺邊就 skip。
+            # 兩邊都係 None 先至真係計唔到，先 skip。
+            if not legs or (be.get("lower") is None and be.get("upper") is None):
                 continue
             debit, credit = st.get("debit"), st.get("credit")
             net = debit if isinstance(debit, (int, float)) else (
@@ -169,7 +172,8 @@ def load_scans(scans_dir):
                 "score": round(float(score), 1),
                 "struct": st.get("name") or "",
                 "dir": "sell" if isinstance(credit, (int, float)) else "buy",
-                "be": {"lower": float(be["lower"]), "upper": float(be["upper"])},
+                "be": {"lower": float(be["lower"]) if be.get("lower") is not None else None,
+                       "upper": float(be["upper"]) if be.get("upper") is not None else None},
                 "scanPrice": float(r.get("price") or 0),
                 "expiry": st.get("expiry") or "",
                 "legs": [{"act": L.get("act"), "kind": L.get("kind"),
@@ -203,10 +207,14 @@ def resolve_record(rec, hist, today):
         if due is not None and due <= today:
             rows = [r for r in hist if sday < r["date"] <= due]
             if len(rows) >= 10:
+                # 缺邊當無界：賣方（收租）單邊結構上/下邊係 +∞/−∞；
+                # 買方（賺波）缺邊就當嗰邊唔會觸發命中。
                 if rec["dir"] == "sell":
-                    hit = all(lower <= r["close"] <= upper for r in rows)
+                    hit = all((lower is None or r["close"] >= lower) and
+                              (upper is None or r["close"] <= upper) for r in rows)
                 else:
-                    hit = any(r["high"] >= upper or r["low"] <= lower for r in rows)
+                    hit = any((upper is not None and r["high"] >= upper) or
+                              (lower is not None and r["low"] <= lower) for r in rows)
                 rec["chk10"] = {"due": due.isoformat(),
                                 "close": rows[-1]["close"], "hit": bool(hit)}
 
