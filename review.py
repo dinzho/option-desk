@@ -150,18 +150,23 @@ def load_scans(scans_dir):
             score = r.get("score") or 0
             if score < SCORE_MIN or not r.get("multiTrigger"):
                 continue
+            sym = r.get("symbol")
             st = r.get("structure") or {}
             legs = st.get("legs") or []
             be = st.get("breakEven") or {}
+            debit, credit = st.get("debit"), st.get("credit")
+            net = debit if isinstance(debit, (int, float)) else (
+                credit if isinstance(credit, (int, float)) else None)
             # 賣期權收租（SELL_PREMIUM）單邊結構（賣 Put / 賣 Call）只有一邊損平，
             # 另一邊係無界（價格越過越賺），唔可以因為缺邊就 skip。
             # 兩邊都係 None 先至真係計唔到，先 skip。
             if not legs or (be.get("lower") is None and be.get("upper") is None):
+                log("  ⚠ 跳過 %s@%s [%s]：結構無腿或兩邊都無損平（structure=%s）"
+                    % (sym, scan_date, r.get("tag"), st.get("name")))
                 continue
-            debit, credit = st.get("debit"), st.get("credit")
-            net = debit if isinstance(debit, (int, float)) else (
-                credit if isinstance(credit, (int, float)) else None)
             if net is None or net <= 0:
+                log("  ⚠ 跳過 %s@%s [%s]：net 計唔到或非正數（debit=%s credit=%s）"
+                    % (sym, scan_date, r.get("tag"), debit, credit))
                 continue
             out.append({
                 "key": "%s@%s" % (r.get("symbol"), scan_date),
