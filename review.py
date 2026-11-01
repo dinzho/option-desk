@@ -25,6 +25,7 @@ import argparse
 import glob
 import io
 import json
+import math
 import os
 import re
 import sys
@@ -127,6 +128,139 @@ def payoff_per_share(price, legs):
     return total
 
 
+# ---------------------------------------------------------------- 風險管理（提前平倉）
+
+R_RATE = 0.043   # 無風險利率（估值用，同 dashboard 預設一致）
+R_DIV = 0.0      # 股息（覆盤無每日股息數據，取 0，對短期估值影響極小）
+
+# 平倉規則（同 UI 顯示完全一致）：
+#   賣方（收權利金 net）：虧損達 2 倍權利金 → 止損；賺到 50% 權利金 → 止盈
+#   買方（付權利金 net）：蝕 50% → 止損；翻倍 → 止盈
+STOP_SELL, TAKE_SELL = 2.0, 0.5
+STOP_BUY, TAKE_BUY = 0.5, 1.0
+
+
+def _norm_cdf(x):
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def bs_price(kind, S, K, T, iv, r=R_RATE, q=R_DIV):
+    """Black-Scholes 期權價（每股）。T 以年計。"""
+    if T <= 0 or iv is None or iv <= 0 or S <= 0 or K <= 0:
+        return max(S - K, 0.0) if kind == "call" else max(K - S, 0.0)
+    sq = iv * math.sqrt(T)
+    d1 = (math.log(S / K) + (r - q + 0.5 * iv * iv) * T) / sq
+    d2 = d1 - sq
+    if kind == "call":
+        return S * math.exp(-q * T) * _norm_cdf(d1) - K * math.exp(-r * T) * _norm_cdf(d2)
+    return K * math.exp(-r * T) * _norm_cdf(-d2) - S * math.exp(-q * T) * _norm_cdf(-d1)
+
+
+def implied_vol(kind, price, S, K, T, r=R_RATE, q=R_DIV):
+    """由市價反解 IV（二分法）。解唔到 return None。"""
+    if price is None or price <= 0 or S <= 0 or K <= 0 or T <= 0:
+        return None
+    lo, hi = 0.01, 4.0
+    intrinsic = max(S - K, 0.0) if kind == "call" else max(K - S, 0.0)
+    if price <= intrinsic + 1e-9:
+        return None  # 深價內貼著內在值，IV 不可辨識
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        p = bs_price(kind, S, K, T, mid, r, q)
+        if p < price:
+            lo = mid
+        else:
+            hi = mid
+    return round((lo + hi) / 2.0, 4)
+
+
+def leg_ivs(rec):
+    """用建倉日數據反解每條腿嘅 IV（之後每日凍結呢個 IV 估值平倉）。
+    有任何一條腿解唔到 → return None（該紀錄只做到期結算，唔做提前平倉）。"""
+    try:
+        sday = datetime.date(*[int(x) for x in rec["date"].split("-")])
+        xday = datetime.date(*[int(x) for x in rec["expiry"].split("-")])
+    except (KeyError, ValueError):
+        return None
+    T_entry = max((xday - sday).days, 1) / 365.0
+    S0 = float(rec.get("scanPrice") or 0)
+    if S0 <= 0:
+        return None
+    out = []
+    for L in rec.get("legs") or []:
+        if L.get("kind") == "stock":
+            out.append(0.0)
+            continue
+        iv = implied_vol(L.get("kind"), float(L.get("mid") or 0), S0,
+                         float(L.get("K") or 0), T_entry)
+        if iv is None:
+            return None
+        out.append(iv)
+    return out if out else None
+
+
+def position_value(S, legs, ivs, T_rem):
+    """用凍結 IV 估值個倉而家值幾多（每股；買腿 +、賣腿 −）。"""
+    V = 0.0
+    for L, iv in zip(legs, ivs):
+        if L.get("kind") == "stock":
+            p = S
+        else:
+            p = bs_price(L.get("kind"), S, float(L.get("K") or 0), T_rem, iv)
+        V += p if L.get("act") == "buy" else -p
+    return V
+
+
+def check_early_close(rec, hist, today):
+    """每日收市風險檢查：觸及止損／止盈就提前平倉結算（模擬）。
+    估值口徑：凍結建倉 IV + 當日收市價 + 剩餘時間值（Black-Scholes）。
+    平倉日 strict 早過到期日——到期當日照到期結算，唔會重複計。"""
+    if rec.get("exp") is not None:
+        return
+    ivs = rec.get("ivs")
+    legs = rec.get("legs") or []
+    if not ivs or len(ivs) != len(legs) or not hist:
+        return
+    try:
+        sday = datetime.date(*[int(x) for x in rec["date"].split("-")])
+        xday = datetime.date(*[int(x) for x in rec["expiry"].split("-")])
+    except (KeyError, ValueError):
+        return
+    net = float(rec.get("net") or 0)
+    if net <= 0 or xday <= sday:
+        return
+    is_sell = rec.get("dir") == "sell"
+    stop_lvl = -STOP_SELL * net * 100.0 if is_sell else -STOP_BUY * net * 100.0
+    take_lvl = TAKE_SELL * net * 100.0 if is_sell else TAKE_BUY * net * 100.0
+
+    for row in hist:
+        d = row["date"]
+        if not (sday < d < xday) or d > today:
+            continue
+        T_rem = max((xday - d).days, 0.5) / 365.0
+        V = position_value(row["close"], legs, ivs, T_rem)
+        pnl_ps = (net + V) if is_sell else (V - net)
+        pnl = pnl_ps * 100.0
+        reason = None
+        if pnl <= stop_lvl:
+            reason = "止損"
+        elif pnl >= take_lvl:
+            reason = "止盈"
+        if reason:
+            rec["exp"] = {
+                "date": d.isoformat(), "close": row["close"],
+                "pnlPerLot": round(pnl, 2),
+                "pnlPct": round(pnl / (net * 100.0), 4),
+                "win": bool(pnl > 0),
+                "early": reason,
+                "note": "提前平倉：以建倉 IV 估值（未計 IV 變化）",
+            }
+            rec["status"] = "done"
+            log("  ⚡ %s@%s 提前%s：close=%.2f 每手 %+.0f"
+                % (rec["sym"], rec["date"], reason, row["close"], pnl))
+            return
+
+
 # ---------------------------------------------------------------- 紀錄處理
 
 def load_scans(scans_dir):
@@ -195,8 +329,9 @@ def blank_record(rec):
         "struct": rec["struct"], "dir": rec["dir"], "be": rec["be"],
         "scanPrice": rec["scanPrice"], "expiry": rec["expiry"], "net": rec["net"],
         "legs": rec["legs"],
+        "ivs": leg_ivs(rec),   # 每腿建倉 IV（提前平倉估值用；None = 只做到期結算）
         "chk10": None,   # {"due":..., "close":..., "hit": true/false}
-        "exp": None,     # {"date":..., "close":..., "pnlPerLot":..., "pnlPct":..., "win":...}
+        "exp": None,     # {"date":..., "close":..., "pnlPerLot":..., "pnlPct":..., "win":..., "early": ...}
         "status": "pending",
     }
 
@@ -223,7 +358,10 @@ def resolve_record(rec, hist, today):
                 rec["chk10"] = {"due": due.isoformat(),
                                 "close": rows[-1]["close"], "hit": bool(hit)}
 
-    # ---- exp：到期結算 ----
+    # ---- 提前平倉（風險管理）：每日收市檢查，觸及止損／止盈即結算 ----
+    check_early_close(rec, hist, today)
+
+    # ---- exp：到期結算（提前平倉已結算嘅會跳過）----
     if rec["exp"] is None and rec["expiry"]:
         try:
             xday = datetime.date(*[int(x) for x in rec["expiry"].split("-")])
@@ -263,10 +401,12 @@ def summarize(records, today=None):
                if (r.get("exp") or {}).get("pnlPerLot") is not None]
     settle_win = sum(1 for r in settled if r["exp"]["win"])
     pnl_sum = sum(r["exp"]["pnlPct"] for r in settled)
+    early_closed = sum(1 for r in records if (r.get("exp") or {}).get("early"))
     by_tag = {}
     for r in records:
         t = by_tag.setdefault(r["tag"], {"tracked": 0, "touchHit": 0,
-                                         "settled": 0, "settleWin": 0})
+                                         "settled": 0, "settleWin": 0,
+                                         "earlyClosed": 0})
         t["tracked"] += 1
         if (r.get("chk10") or {}).get("hit"):
             t["touchHit"] += 1
@@ -274,6 +414,8 @@ def summarize(records, today=None):
             t["settled"] += 1
             if r["exp"]["win"]:
                 t["settleWin"] += 1
+            if r["exp"].get("early"):
+                t["earlyClosed"] += 1
     return {
         "generated": (today or datetime.date.today()).isoformat(),
         "tracked": len(records),
@@ -281,6 +423,7 @@ def summarize(records, today=None):
         "touchTotal": touch_total,
         "settled": len(settled),
         "settleWin": settle_win,
+        "earlyClosed": early_closed,
         "pnlSum": round(pnl_sum, 4),
         "byTag": by_tag,
     }
@@ -289,7 +432,7 @@ def summarize(records, today=None):
 def _merge_summary(a, b):
     """兩份局部摘要合併（歸檔 + 在冊 = 全量）。"""
     out = dict(a)
-    for k in ("tracked", "touchHit", "touchTotal", "settled", "settleWin"):
+    for k in ("tracked", "touchHit", "touchTotal", "settled", "settleWin", "earlyClosed"):
         out[k] = a.get(k, 0) + b.get(k, 0)
     out["pnlSum"] = round(a.get("pnlSum", 0.0) + b.get("pnlSum", 0.0), 4)
     out["byTag"] = _merge_by_tag(a.get("byTag") or {}, b.get("byTag") or {})
@@ -299,9 +442,9 @@ def _merge_summary(a, b):
 def _merge_by_tag(old, new):
     out = {}
     for k, v in old.items():
-        out[k] = {kk: v.get(kk, 0) for kk in ("tracked", "touchHit", "settled", "settleWin")}
+        out[k] = {kk: v.get(kk, 0) for kk in ("tracked", "touchHit", "settled", "settleWin", "earlyClosed")}
     for k, v in new.items():
-        b = out.setdefault(k, {"tracked": 0, "touchHit": 0, "settled": 0, "settleWin": 0})
+        b = out.setdefault(k, {"tracked": 0, "touchHit": 0, "settled": 0, "settleWin": 0, "earlyClosed": 0})
         for kk in b:
             b[kk] = b.get(kk, 0) + v.get(kk, 0)
     return out
@@ -321,7 +464,7 @@ def main():
     ap.add_argument("--scans-dir", default=os.path.join(HERE, "scan"))
     ap.add_argument("--out", default=os.path.join(HERE, "scan", "perf.json"))
     ap.add_argument("--keep", type=int, default=90, help="保留最近 N 筆已結算紀錄")
-    ap.add_argument("--max-fetch", type=int, default=40, help="單次最多抓幾隻歷史")
+    ap.add_argument("--max-fetch", type=int, default=60, help="單次最多抓幾筆紀錄嘅歷史")
     ap.add_argument("--asof", default=None, help="模擬指定日期（YYYY-MM-DD），測試／補跑用")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
@@ -350,37 +493,43 @@ def main():
     for rec in load_scans(args.scans_dir):
         records.setdefault(rec["key"], blank_record(rec))
 
-    # 2. 搵出要抓價格嘅 record（有 checkpoint 未結算）
+    # 舊 ledger 紀錄無 ivs 欄（提前平倉功能之前嘅版本）：補反解一次
+    for r in records.values():
+        if r.get("ivs") is None and r.get("exp") is None:
+            r["ivs"] = leg_ivs(r)
+
+    # 2. 搵出要抓價格嘅 record：
+    #    - chk10 未出（建議後 10 個交易日）
+    #    - exp 未出：到期結算 + 提前平倉每日風險檢查都要用到歷史價
     need = []
     for r in records.values():
         due = False
         if r["chk10"] is None and r["date"] < today.isoformat():
             due = True
-        if r["exp"] is None and r["expiry"]:
-            try:
-                xday = datetime.date(*[int(x) for x in r["expiry"].split("-")])
-                if xday <= today:
-                    due = True
-            except ValueError:
-                pass
+        if r["exp"] is None:
+            due = True
         if due:
             need.append(r)
     need.sort(key=lambda r: r["date"])
     if len(need) > args.max_fetch:
-        log("  ! 待抓取 %d 隻超過上限 %d，今次先搞最近嗰批" % (len(need), args.max_fetch))
+        log("  ! 待抓取 %d 筆超過上限 %d，今次先搞最近嗰批" % (len(need), args.max_fetch))
         need = need[-args.max_fetch:]
 
-    # 3. 抓價 + 計指標（每隻只需要一次歷史請求）
-    fetched = 0
+    # 3. 抓價 + 計指標——同一隻股票多筆紀錄只抓一次歷史（慳請求）
+    by_sym = {}
     for r in need:
-        sym = r["sym"]
-        sday = datetime.date(*[int(x) for x in r["date"].split("-")])
-        hist = fetch_history(sym, sday, today)
+        by_sym.setdefault(r["sym"], []).append(r)
+    fetched = 0
+    for sym in sorted(by_sym):
+        rs = by_sym[sym]
+        start = min(datetime.date(*[int(x) for x in r["date"].split("-")]) for r in rs)
+        hist = fetch_history(sym, start, today)
         fetched += 1
         if hist:
-            resolve_record(r, hist, today)
+            for r in rs:
+                resolve_record(r, hist, today)
         time.sleep(0.2)
-    log("  抓取 %d 隻歷史，更新 %d 項" % (fetched, len(need)))
+    log("  抓取 %d 隻歷史（%d 筆紀錄），更新 %d 項" % (fetched, len(need), len(need)))
 
     # 4. 摘要 = 歸檔（旋轉走嘅舊紀錄）+ 在冊，全量重計，唔靠舊摘要（防重複計）
     kept, folded = rotate(list(records.values()), args.keep)
@@ -404,9 +553,10 @@ def main():
     rate = (s["touchHit"] / s["touchTotal"]) if s["touchTotal"] else None
     srate = (s["settleWin"] / s["settled"]) if s["settled"] else None
     log("✓ perf.json 已寫入：%d 筆在冊（%d 筆已併入累計摘要）" % (len(kept), len(folded)))
-    log("  信號命中 %s ｜ 到期勝率 %s ｜ 平均報酬 %s" % (
+    log("  信號命中 %s ｜ 結算勝率 %s ｜ 提前平倉 %d 筆 ｜ 平均報酬 %s" % (
         ("%.0f%%（%d/%d）" % (rate * 100, s["touchHit"], s["touchTotal"])) if rate is not None else "樣本不足",
         ("%.0f%%（%d/%d）" % (srate * 100, s["settleWin"], s["settled"])) if srate is not None else "樣本不足",
+        s.get("earlyClosed", 0),
         ("%+.1f%%" % (s["pnlSum"] / s["settled"] * 100)) if s["settled"] else "—"))
 
 
