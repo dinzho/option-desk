@@ -833,7 +833,8 @@
   /** 完整選擇權鏈 —— 對應 fetch_chain */
   function nasdaqChain(symbol, opts) {
     opts = opts || {};
-    var months = opts.months || 4;
+    // 24 個月：涵蓋到 LEAPS 長倉（之前只攞 4 個月，用戶反映唔夠遠期到期日）
+    var months = opts.months || 24;
     var today = new Date(), end = new Date(today.getTime() + 30.4 * months * 86400000);
     function iso(d) { return d.toISOString().slice(0, 10); }
     var p = NASDAQ_BASE + '/' + encodeURIComponent(symbol) + '/option-chain?assetclass=stocks'
