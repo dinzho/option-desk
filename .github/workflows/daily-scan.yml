@@ -81,7 +81,7 @@ jobs:
             echo "今日无合格标的，跳过快照抓取"
           else
             echo "当日首选: $SYM"
-            python3 fetch.py "$SYM" --months 4 || echo "快照抓取失败，退回纯扫描版"
+            python3 fetch.py "$SYM" --months 24 || echo "快照抓取失败，退回纯扫描版"
           fi
 
       - name: 績效覆盤（跟進過往可出手建議）
