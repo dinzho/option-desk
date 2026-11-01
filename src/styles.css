@@ -860,7 +860,7 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
   border-left: 3px solid var(--c-accent);
 }
 .perf-hint b { color: var(--c-text); }
-.perf-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.perf-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
 .perf-stat {
   display: flex; flex-direction: column; gap: 2px; padding: 10px 12px;
   background: var(--c-surface-3); border-radius: var(--r-md);
@@ -892,15 +892,23 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 .perf-table tr:last-child td { border-bottom: 0; }
 .perf-table .pf-date { color: var(--c-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .perf-table .pf-date i { display: block; font-style: normal; font-size: 11px; color: var(--c-faint); margin-top: 1px; }
-.perf-table .pf-struct { color: var(--c-muted); max-width: 220px; }
+.perf-table .pf-struct { color: var(--c-muted); max-width: 200px; }
+.perf-table .pf-pos { max-width: 240px; }
+.perf-table .pf-pos .mono { font-variant-numeric: tabular-nums; font-size: 12px; }
+.perf-table .pf-pos i { display: block; font-style: normal; font-size: 11px; color: var(--c-faint); margin-top: 1px; }
+.perf-table .pf-pos .pf-risk { color: var(--c-muted); }
+.pf-early { display: block; font-style: normal; font-size: 11px; font-weight: 650; margin-top: 1px; }
+.pf-early.is-bad { color: var(--c-warn-strong); }
+.pf-early.is-ok { color: var(--c-accent); }
+.tpl-meta { color: var(--c-faint); }
 .pv { font-weight: 650; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pv.is-ok { color: var(--c-accent); }
 .pv.is-bad { color: var(--c-warn-strong); }
 .pv.is-wait { color: var(--c-faint); font-weight: 500; }
 .perf-foot { font-size: var(--fs-eyebrow); color: var(--c-faint); line-height: 1.5; }
 @media (max-width: 720px) {
-  .perf-stats { grid-template-columns: 1fr; }
-  .perf-table .pf-struct { display: none; }
+  .perf-stats { grid-template-columns: 1fr 1fr; }
+  .perf-table .pf-struct, .perf-table .pf-pos { display: none; }
 }
 
 /* ---- 标签筛选 ---- */
