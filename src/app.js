@@ -805,6 +805,24 @@
     long_call: '行權價偏移 %', long_put: '行權價偏移 %', leaps_call: '行權價偏移 %',
     calendar_call: '行權價偏移 %', calendar_put: '行權價偏移 %'
   };
+  // 每個模板嘅建議參數值——揀模板即自動帶入（長短腿 DTE／寬度／翼寬各有合理預設，仍可手改）
+  var TPL_DEFAULTS = {
+    long_call: { dte: 45, width: 5 }, long_put: { dte: 45, width: 5 },
+    leaps_call: { dte: 550, width: 10 },
+    covered_call: { dte: 30, width: 5 }, csp: { dte: 30, width: 5 },
+    pmcc: { dte: 45, dte2: 550, width: 7 },
+    protective_put: { dte: 45, width: 5 }, collar: { dte: 45, width: 5 },
+    bull_call_spread: { dte: 45, width: 5 }, bear_put_spread: { dte: 45, width: 5 },
+    bull_put_spread: { dte: 30, width: 5 }, bear_call_spread: { dte: 30, width: 5 },
+    long_straddle: { dte: 45 }, short_straddle: { dte: 45 },
+    long_strangle: { dte: 45, width: 5 }, short_strangle: { dte: 45, width: 5 },
+    iron_condor: { dte: 45, width: 5, wing: 5 }, iron_butterfly: { dte: 45, width: 5 },
+    long_butterfly: { dte: 45, width: 5 },
+    calendar_call: { dte: 30, dte2: 60, width: 0 }, calendar_put: { dte: 30, dte2: 60, width: 0 },
+    diagonal_call: { dte: 45, dte2: 400, width: 5 },
+    ratio_backspread_call: { dte: 45, width: 5 }, ratio_backspread_put: { dte: 45, width: 5 },
+    jade_lizard: { dte: 30, width: 5, wing: 5 }
+  };
 
   function applyTplParams(tplId) {
     var t = S.TEMPLATE_MAP[tplId];
@@ -815,6 +833,20 @@
       var field = input.parentNode;
       if (field) field.style.display = used.indexOf(pair[1]) >= 0 ? '' : 'none';
     });
+    // 揀模板即自動帶入該模板嘅建議值（長短腿 DTE／寬度／翼寬），state 同輸入框同步更新
+    var defs = TPL_DEFAULTS[tplId];
+    if (defs) {
+      [['dte', 'in-dte'], ['dte2', 'in-dte2'], ['width', 'in-width'], ['wing', 'in-wing']]
+        .forEach(function (p) {
+          if (defs[p[0]] == null || used.indexOf(p[0]) < 0) return;
+          var inp = $(p[1]);
+          if (inp && String(inp.value) !== String(defs[p[0]])) {
+            inp.value = defs[p[0]];
+            state[p[0]] = defs[p[0]];
+          }
+        });
+      if (typeof recompute === 'function') recompute();
+    }
     // 長腿 DTE 唔喺參數入面但佢係萬年 550 之類，照收埋
     var wl = TPL_WIDTH_LABEL[tplId];
     if (wl) {
