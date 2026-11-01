@@ -782,6 +782,54 @@
   }
 
   /* ============================ 模板 ============================ */
+  // 每個模板實際用到嘅參數——未列入嘅欄位自動收埋，唔再全部固定晒出嚟
+  var TPL_PARAMS = {
+    long_call: ['dte', 'width', 'qty'], long_put: ['dte', 'width', 'qty'],
+    leaps_call: ['dte', 'qty'],
+    covered_call: ['dte', 'width', 'qty'], csp: ['dte', 'width', 'qty'],
+    pmcc: ['dte', 'dte2', 'width', 'qty'],
+    protective_put: ['dte', 'width', 'qty'], collar: ['dte', 'width', 'qty'],
+    bull_call_spread: ['dte', 'width', 'qty'], bear_put_spread: ['dte', 'width', 'qty'],
+    bull_put_spread: ['dte', 'width', 'qty'], bear_call_spread: ['dte', 'width', 'qty'],
+    long_straddle: ['dte', 'qty'], short_straddle: ['dte', 'qty'],
+    long_strangle: ['dte', 'width', 'qty'], short_strangle: ['dte', 'width', 'qty'],
+    iron_condor: ['dte', 'width', 'wing', 'qty'], iron_butterfly: ['dte', 'width', 'qty'],
+    long_butterfly: ['dte', 'width', 'qty'],
+    calendar_call: ['dte', 'dte2', 'width', 'qty'], calendar_put: ['dte', 'dte2', 'width', 'qty'],
+    diagonal_call: ['dte', 'dte2', 'width', 'qty'],
+    ratio_backspread_call: ['dte', 'width', 'qty'], ratio_backspread_put: ['dte', 'width', 'qty'],
+    jade_lizard: ['dte', 'width', 'wing', 'qty']
+  };
+  // 「行權价间距」標籤按模板語義調整
+  var TPL_WIDTH_LABEL = {
+    long_call: '行權價偏移 %', long_put: '行權價偏移 %', leaps_call: '行權價偏移 %',
+    calendar_call: '行權價偏移 %', calendar_put: '行權價偏移 %'
+  };
+
+  function applyTplParams(tplId) {
+    var t = S.TEMPLATE_MAP[tplId];
+    var used = TPL_PARAMS[tplId] || ['dte', 'dte2', 'width', 'wing', 'qty'];
+    [['in-dte', 'dte'], ['in-dte2', 'dte2'], ['in-width', 'width'],
+     ['in-wing', 'wing'], ['in-qty', 'qty']].forEach(function (pair) {
+      var input = $(pair[0]);
+      var field = input.parentNode;
+      if (field) field.style.display = used.indexOf(pair[1]) >= 0 ? '' : 'none';
+    });
+    // 長腿 DTE 唔喺參數入面但佢係萬年 550 之類，照收埋
+    var wl = TPL_WIDTH_LABEL[tplId];
+    if (wl) {
+      var lbl = $('in-width').parentNode.querySelector('label');
+      if (lbl) lbl.textContent = wl;
+    }
+    // 描述補埋腿數同適用參數提示，模板之間內容就唔會一樣
+    if (t) {
+      var pn = used.filter(function (k) { return k !== 'qty'; })
+        .map(function (k) { return { dte: '短腿DTE', dte2: '長腿DTE', width: (TPL_WIDTH_LABEL[tplId] || '價差寬度').replace(' %', ''), wing: '保護翼寬' }[k]; });
+      $('tpl-desc').innerHTML = esc(t.desc) +
+        '<br><i class="tpl-meta">' + t.legs + ' 腿 · 用到參數：' + esc(pn.join('、')) + '</i>';
+    }
+  }
+
   function initTemplates() {
     var sel = $('in-template');
     var groups = {};
@@ -799,14 +847,12 @@
     $('tpl-count').textContent = S.TEMPLATES.length + ' 个';
     sel.onchange = function () {
       state.template = sel.value;
-      var t = S.TEMPLATE_MAP[state.template];
-      $('tpl-desc').textContent = t ? t.desc : '';
+      applyTplParams(state.template);
     };
-    var t0 = S.TEMPLATE_MAP[state.template];
-    $('tpl-desc').textContent = t0 ? t0.desc : '';
+    applyTplParams(state.template);
   }
 
-  function buildStrategy() {
+  function buildStrategy(jump) {
     var ctx = {
       spot: state.spot, dte: state.dte, dte2: state.dte2,
       widthPct: state.width, wingPct: state.wing, qty: state.qty,
@@ -835,6 +881,13 @@
     state.legs = legs;
     recompute();
     toast('已生成：' + S.TEMPLATE_MAP[state.template].name);
+    // 跳轉到策略構建器分頁，用戶即刻見到生成嘅持倉同指標（首次自動生成唔跳）
+    if (jump) {
+      var tab = document.querySelector('.tab[data-tab="builder"]');
+      if (tab) tab.click();
+      var panel = document.querySelector('.tab-panel[data-panel="builder"]');
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 
   /* ============================ 数据源配置 ============================ */
@@ -939,7 +992,7 @@
       setStatus('演示数据', 'warn');
       toast('已载入演示数据（AVGO 快照）');
     };
-    $('btn-build').onclick = buildStrategy;
+    $('btn-build').onclick = function () { buildStrategy(true); };
     $('btn-add-leg').onclick = function () {
       if (state.legs.length >= 8) { toast('最多支持 8 条腿', 'warn'); return; }
       var ch = currentChain();
@@ -1044,8 +1097,7 @@
       applySnapshot(D.demoSnapshot('AVGO'));
       setStatus('演示数据', 'warn');
     }
-    var t = S.TEMPLATE_MAP[state.template];
-    if (t) $('tpl-desc').textContent = t.desc;
+    applyTplParams(state.template);
     // 默认生成一个策略，避免空白
     buildStrategy();
   }
