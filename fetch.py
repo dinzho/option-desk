@@ -189,7 +189,7 @@ def fetch_expirations(sym):
     return None
 
 
-def fetch_chain(sym, months=4, min_strikes_window=0.30):
+def fetch_chain(sym, months=24, min_strikes_window=0.30):
     """抓所有到期日嘅鏈。min_strikes_window：只保留現價 ±30% 內嘅履約價。"""
     today = date.today()
     end = today + timedelta(days=int(30.4 * months))
@@ -241,7 +241,7 @@ def fetch_chain(sym, months=4, min_strikes_window=0.30):
 
 
 # ---------------------------------------------------------------------------- 主流程
-def build_snapshot(sym, months=4, years=1.2, keep_all_strikes=False):
+def build_snapshot(sym, months=24, years=1.2, keep_all_strikes=False):
     sym = sym.strip().upper()
     print("→ %s  報價 ..." % sym)
     quote = fetch_quote(sym)
