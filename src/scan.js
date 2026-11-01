@@ -366,8 +366,9 @@
     var hasStats = !!(tt || sd);
     var recs = perf.records || [];
 
-    // ---- 最近紀錄表（只要有紀錄就一定渲染——用戶要時刻睇到跟緊咩）----
-    var rows = recs.slice(0, 8).map(function (r) {
+    // ---- 記錄分兩區：已結算（有真實盈虧）放最上，跟緊中排後 ----
+    function isSettled(r) { return !!(r.exp && r.exp.pnlPerLot != null); }
+    function perfRow(r) {
       var sig = r.chk10
         ? '<span class="pv ' + (r.chk10.hit ? 'is-ok' : 'is-bad') + '">' + (r.chk10.hit ? '✓ 命中' : '✗ 脫靶') + '</span>'
         : '<span class="pv is-wait">⏳ 跟緊</span>';
@@ -388,9 +389,17 @@
         '<td><b>' + esc(r.sym) + '</b></td>' +
         '<td class="pf-struct">' + esc(r.struct || '') + '</td>' +
         '<td>' + sig + '</td><td>' + exp2 + '</td></tr>';
-    }).join('');
+    }
 
-    // ---- 全新手：從未跟過任何建議，先講機制 ---- 
+    var settledRecs = recs.filter(isSettled)
+      .sort(function (a, b) { return String(b.exp.date || '').localeCompare(String(a.exp.date || '')); });
+    var pendingRecs = recs.filter(function (r) { return !isSettled(r); });
+    var settledRows = settledRecs.slice(0, 12).map(perfRow).join('');
+    var pendingRows = pendingRecs.slice(0, 8).map(perfRow).join('');
+    var thead = '<table class="perf-table"><thead><tr><th>建議日</th><th>股票</th><th>結構</th>' +
+      '<th>10 日信號</th><th>到期結算</th></tr></thead><tbody>';
+
+    // ---- 全新手：從未跟過任何建議，先講機制 ----
     if (!hasStats && !recs.length) {
       return '<div class="perf-box is-empty">' +
         '<div class="perf-head"><b>📈 過往績效</b><span class="perf-note">自動覆盤</span></div>' +
@@ -402,7 +411,10 @@
 
     var touchRate = tt ? (th / tt * 100) : null;
     var settleRate = sd ? (sw / sd * 100) : null;
-    var avgPnl = sd ? (s.pnlSum / sd * 100) : null;
+    // 實際銀碼：每手（100 股）盈虧合計／平均——比「盈虧÷權利金%」更直觀
+    var pnlDollar = settledRecs.reduce(function (s, r) { return s + (r.exp.pnlPerLot || 0); }, 0);
+    var avgDollar = settledRecs.length ? pnlDollar / settledRecs.length : null;
+    function money(v) { return (v < 0 ? '−$' : '+$') + Math.abs(Math.round(v)).toLocaleString(); }
 
     // 分標籤命中率
     var tagRows = Object.keys(s.byTag || {}).map(function (k) {
@@ -438,11 +450,13 @@
       '<div class="perf-stats">' +
       statCard('信號命中率', touchRate, th + '/' + tt, '10 個交易日內價格進入盈利區間', touchRate == null, 'rate') +
       statCard('到期勝率', settleRate, sw + '/' + sd, '到期結算每手賺錢嘅比例', settleRate == null, 'rate') +
-      statCard('平均報酬', avgPnl, sd + ' 筆', '每手盈虧 ÷ 收取／付出權利金', avgPnl == null, 'pnl') +
+      statCard('到期損益', pnlDollar,
+        (settledRecs.length ? settledRecs.length + ' 筆 · 每手平均 ' + (avgDollar == null ? '—' : money(avgDollar)) : '—'),
+        '每手（100 股）實際盈虧合計，到期以真實收市價結算', !settledRecs.length, 'dollar') +
       '</div>' +
       (tagRows ? '<div class="perf-tags">' + tagRows + '</div>' : '') +
-      (rows ? '<table class="perf-table"><thead><tr><th>建議日</th><th>股票</th><th>結構</th>' +
-        '<th>10 日信號</th><th>到期結算</th></tr></thead><tbody>' + rows + '</tbody></table>' : '') +
+      (settledRows ? '<div class="perf-sec">✅ <b>已結算 ' + settledRecs.length + ' 筆</b>——盈虧係真實收市價計出嚟嘅銀碼</div>' + thead + settledRows + '</tbody></table>' : '') +
+      (pendingRows ? '<div class="perf-sec">⏳ <b>跟緊中 ' + pendingRecs.length + ' 筆</b>——到期日先自動結算</div>' + thead + pendingRows + '</tbody></table>' : '') +
       '<div class="perf-foot">全部自動完成：每日「可出手」建議自動入帳 → 到期以真實收市價結算，' +
       '屬系統模擬跟單（紙面交易），唔使開實盤。口徑：買方結構 = 區間被觸及即命中；' +
       '賣方結構 = 第 10 日收市仍在區間即命中。樣本細時勝率波動大，建議累積 30 筆以上先信。' +
@@ -451,10 +465,18 @@
   }
 
   function statCard(label, rate, frac, note, empty, mode) {
-    // mode = 'rate'（命中／勝率，50% 分界）或 'pnl'（報酬，0 分界）
-    var threshold = mode === 'pnl' ? 0 : 50;
-    var val = empty ? '—' : (rate >= 0 ? '+' + rate.toFixed(0) + '%' : rate.toFixed(0) + '%');
-    var cls = empty ? '' : (rate >= threshold ? ' is-ok' : ' is-bad');
+    // mode = 'rate'（命中／勝率，50% 分界）、'pnl'（報酬%，0 分界）或 'dollar'（實際銀碼）
+    var val, cls;
+    if (empty) {
+      val = '—'; cls = '';
+    } else if (mode === 'dollar') {
+      val = (rate < 0 ? '−$' : '+$') + Math.abs(Math.round(rate)).toLocaleString();
+      cls = rate >= 0 ? ' is-ok' : ' is-bad';
+    } else {
+      var threshold = mode === 'pnl' ? 0 : 50;
+      val = (rate > 0 ? '+' : rate < 0 ? '−' : '') + Math.abs(rate).toFixed(0) + '%';
+      cls = rate >= threshold ? ' is-ok' : ' is-bad';
+    }
     return '<div class="perf-stat' + cls + '">' +
       '<span class="ps-label">' + label + '</span>' +
       '<b class="ps-val">' + val + '</b>' +
