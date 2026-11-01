@@ -368,15 +368,39 @@
 
     // ---- 記錄分兩區：已結算（有真實盈虧）放最上，跟緊中排後 ----
     function isSettled(r) { return !!(r.exp && r.exp.pnlPerLot != null); }
+    // 風險管理閾值（同 review.py 提前平倉規則一致）：
+    // 賣方（收權利金）：虧損達 2 倍權利金止損、賺到 50% 權利金止盈
+    // 買方（付權利金）：蝕 50% 止損、翻倍止盈
+    function riskLevels(r) {
+      var n = (r.net || 0) * 100;
+      if (!n) return null;
+      return r.dir === 'sell'
+        ? { stop: -2 * n, take: 0.5 * n }
+        : { stop: -0.5 * n, take: 1.0 * n };
+    }
+    // 持倉明細：賣 105P @2.35 + 買 100C @0.80 之类
+    function posText(r) {
+      if (!r.legs || !r.legs.length) return '';
+      return r.legs.map(function (L) {
+        var act = L.act === 'sell' ? '賣' : '買';
+        var kind = L.kind === 'call' ? 'C' : (L.kind === 'put' ? 'P' : '股');
+        return act + ' ' + L.K + kind + ' @' + (L.mid != null ? Number(L.mid).toFixed(2) : '—');
+      }).join(' + ');
+    }
     function perfRow(r) {
       var sig = r.chk10
         ? '<span class="pv ' + (r.chk10.hit ? 'is-ok' : 'is-bad') + '">' + (r.chk10.hit ? '✓ 命中' : '✗ 脫靶') + '</span>'
         : '<span class="pv is-wait">⏳ 跟緊</span>';
-      var exp2;
+      var exp2, earlyTag = '';
       if (r.exp && r.exp.pnlPerLot != null) {
         var v = r.exp.pnlPerLot;
+        if (r.exp.early) {
+          var isStop = String(r.exp.early).indexOf('止損') >= 0 || String(r.exp.early).indexOf('止损') >= 0;
+          earlyTag = '<i class="pf-early ' + (isStop ? 'is-bad' : 'is-ok') + '">⚡提前' + esc(r.exp.early) +
+            (r.exp.date ? ' ' + esc(String(r.exp.date).slice(5)) : '') + '</i>';
+        }
         exp2 = '<span class="pv ' + (v > 0 ? 'is-ok' : 'is-bad') + '">' +
-          (v > 0 ? '+' : '−') + '$' + Math.abs(Math.round(v)).toLocaleString() + '</span>';
+          (v > 0 ? '+' : '−') + '$' + Math.abs(Math.round(v)).toLocaleString() + '</span>' + earlyTag;
       } else if (r.exp) {
         exp2 = '<span class="pv is-wait">—</span>';
       } else if (r.expiry) {
@@ -384,20 +408,35 @@
       } else {
         exp2 = '<span class="pv is-wait">⏳ 未到期</span>';
       }
+      // 持倉欄：腿明細 + 權利金 + 止損/止盈位
+      var pos = posText(r);
+      var netNote = '';
+      if (r.net) {
+        netNote = (r.dir === 'sell' ? '收' : '付') + '權利金 $' + Math.round(r.net * 100).toLocaleString() + '/手';
+      }
+      var riskNote = '';
+      if (!isSettled(r)) {
+        var rk = riskLevels(r);
+        if (rk) riskNote = '<i class="pf-risk">止損 ' + (rk.stop < 0 ? '−$' : '+$') + Math.abs(Math.round(rk.stop)).toLocaleString() +
+          ' ／ 止盈 +$' + Math.round(rk.take).toLocaleString() + '</i>';
+      }
       return '<tr><td class="pf-date">' + esc(r.date) +
         (r.expiry ? '<i>到期 ' + esc(r.expiry.slice(5)) + '</i>' : '') + '</td>' +
         '<td><b>' + esc(r.sym) + '</b></td>' +
         '<td class="pf-struct">' + esc(r.struct || '') + '</td>' +
+        '<td class="pf-pos">' + (pos ? '<span class="mono">' + esc(pos) + '</span>' : '—') +
+        (netNote ? '<i>' + esc(netNote) + '</i>' : '') + riskNote + '</td>' +
         '<td>' + sig + '</td><td>' + exp2 + '</td></tr>';
     }
 
     var settledRecs = recs.filter(isSettled)
       .sort(function (a, b) { return String(b.exp.date || '').localeCompare(String(a.exp.date || '')); });
     var pendingRecs = recs.filter(function (r) { return !isSettled(r); });
-    var settledRows = settledRecs.slice(0, 12).map(perfRow).join('');
-    var pendingRows = pendingRecs.slice(0, 8).map(perfRow).join('');
+    // 全量顯示：已結算同跟緊中都不再截斷（perf.json 最多保留 90 筆已結算 + 全部未結算）
+    var settledRows = settledRecs.map(perfRow).join('');
+    var pendingRows = pendingRecs.map(perfRow).join('');
     var thead = '<table class="perf-table"><thead><tr><th>建議日</th><th>股票</th><th>結構</th>' +
-      '<th>10 日信號</th><th>到期結算</th></tr></thead><tbody>';
+      '<th>持倉（行權價 @價）</th><th>10 日信號</th><th>結算</th></tr></thead><tbody>';
 
     // ---- 全新手：從未跟過任何建議，先講機制 ----
     if (!hasStats && !recs.length) {
@@ -414,6 +453,7 @@
     // 實際銀碼：每手（100 股）盈虧合計／平均——比「盈虧÷權利金%」更直觀
     var pnlDollar = settledRecs.reduce(function (s, r) { return s + (r.exp.pnlPerLot || 0); }, 0);
     var avgDollar = settledRecs.length ? pnlDollar / settledRecs.length : null;
+    var earlyCount = settledRecs.filter(function (r) { return r.exp.early; }).length;
     function money(v) { return (v < 0 ? '−$' : '+$') + Math.abs(Math.round(v)).toLocaleString(); }
 
     // 分標籤命中率
@@ -449,29 +489,35 @@
       hint +
       '<div class="perf-stats">' +
       statCard('信號命中率', touchRate, th + '/' + tt, '10 個交易日內價格進入盈利區間', touchRate == null, 'rate') +
-      statCard('到期勝率', settleRate, sw + '/' + sd, '到期結算每手賺錢嘅比例', settleRate == null, 'rate') +
+      statCard('結算勝率', settleRate, sw + '/' + sd, '已結算每手賺錢嘅比例（含提前平倉）', settleRate == null, 'rate') +
       statCard('到期損益', pnlDollar,
         (settledRecs.length ? settledRecs.length + ' 筆 · 每手平均 ' + (avgDollar == null ? '—' : money(avgDollar)) : '—'),
-        '每手（100 股）實際盈虧合計，到期以真實收市價結算', !settledRecs.length, 'dollar') +
+        '每手（100 股）實際盈虧合計，真實收市價結算', !settledRecs.length, 'dollar') +
+      statCard('提前平倉', earlyCount, earlyCount + ' / ' + settledRecs.length + ' 筆',
+        '觸及止損／止盈閾值自動平倉，唔使等到期', false, 'count') +
       '</div>' +
       (tagRows ? '<div class="perf-tags">' + tagRows + '</div>' : '') +
       (settledRows ? '<div class="perf-sec">✅ <b>已結算 ' + settledRecs.length + ' 筆</b>——盈虧係真實收市價計出嚟嘅銀碼</div>' + thead + settledRows + '</tbody></table>' : '') +
-      (pendingRows ? '<div class="perf-sec">⏳ <b>跟緊中 ' + pendingRecs.length + ' 筆</b>——到期日先自動結算</div>' + thead + pendingRows + '</tbody></table>' : '') +
-      '<div class="perf-foot">全部自動完成：每日「可出手」建議自動入帳 → 到期以真實收市價結算，' +
-      '屬系統模擬跟單（紙面交易），唔使開實盤。口徑：買方結構 = 區間被觸及即命中；' +
-      '賣方結構 = 第 10 日收市仍在區間即命中。樣本細時勝率波動大，建議累積 30 筆以上先信。' +
-      '歷史統計唔代表未來表現。</div>' +
+      (pendingRows ? '<div class="perf-sec">⏳ <b>跟緊中 ' + pendingRecs.length + ' 筆</b>——每日收市檢查止損止盈，到期日自動結算</div>' + thead + pendingRows + '</tbody></table>' : '') +
+      '<div class="perf-foot">全部自動完成：每日「可出手」建議自動入帳 → 每日收市做風險檢查 → 到期以真實收市價結算，' +
+      '屬系統模擬跟單（紙面交易），唔使開實盤。<b>風險管理規則</b>：賣方結構 蝕到 2 倍權利金止損／賺到 50% 權利金止盈；' +
+      '買方結構 蝕 50% 止損／翻倍止盈——觸發即以建倉 IV 估值<b>提前平倉</b>，唔會乾等到期。' +
+      '口徑：買方結構 = 區間被觸及即命中；賣方結構 = 第 10 日收市仍在區間即命中。' +
+      '樣本細時勝率波動大，建議累積 30 筆以上先信。歷史統計唔代表未來表現。</div>' +
       '</div>';
   }
 
   function statCard(label, rate, frac, note, empty, mode) {
-    // mode = 'rate'（命中／勝率，50% 分界）、'pnl'（報酬%，0 分界）或 'dollar'（實際銀碼）
+    // mode = 'rate'（命中／勝率，50% 分界）、'pnl'（報酬%，0 分界）、
+    // 'dollar'（實際銀碼）或 'count'（筆數，中性色）
     var val, cls;
     if (empty) {
       val = '—'; cls = '';
     } else if (mode === 'dollar') {
       val = (rate < 0 ? '−$' : '+$') + Math.abs(Math.round(rate)).toLocaleString();
       cls = rate >= 0 ? ' is-ok' : ' is-bad';
+    } else if (mode === 'count') {
+      val = String(Math.round(rate)); cls = '';
     } else {
       var threshold = mode === 'pnl' ? 0 : 50;
       val = (rate > 0 ? '+' : rate < 0 ? '−' : '') + Math.abs(rate).toFixed(0) + '%';
