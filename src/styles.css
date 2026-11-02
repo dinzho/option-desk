@@ -725,10 +725,11 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 .legs-table { display: flex; flex-direction: column; min-width: 0; }
 .legs-head, .leg-row {
   display: grid;
-  grid-template-columns: 66px 84px repeat(5, minmax(64px, 1fr)) 26px;
+  grid-template-columns: 66px 84px repeat(6, minmax(64px, 1fr)) 26px;
   gap: 6px; align-items: center;
   padding: 6px 10px;
 }
+.leg-expiry { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--c-muted, inherit); }
 .legs-head {
   font-size: 9px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
   color: var(--c-faint); border-bottom: 1px solid var(--c-border);
@@ -781,7 +782,7 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 
 /* legs table: allow horizontal scroll on narrow main column */
 @media (max-width: 1180px) {
-  .legs-head, .leg-row { min-width: 560px; }
+  .legs-head, .leg-row { min-width: 640px; }
 }
 
 /* KPI 内部三段必须各自成行（span 默认 inline 会挤在一起） */
