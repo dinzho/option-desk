@@ -758,27 +758,36 @@
           if (phase === 'fail') toast(name + ' 获取失败，将尝试降级', 'warn');
         },
         rate: state.rate, dividend: state.div,
-        proxies: state.proxies
+        proxies: state.proxies,
+        timeout: 7000
       };
+    }
+
+    // ① 先即時用烤入嘅掃描數據填 IV 指標（零網絡，150 隻掃描股秒開）
+    var scanSnap = D.loadFromScan(sym);
+    if (scanSnap) {
+      applySnapshot(scanSnap);
+      setStatus('已載入掃描數據（IV 即時）· 期權鏈稍後即時補', 'ok');
+    } else {
+      setStatus('載入中… 即時抓取 ' + sym, 'warn');
     }
 
     function finish(snap, whenOK, whenWarn) {
       applySnapshot(snap);
-      if (whenOK) { setStatus(whenOK, 'ok'); toast('已载入 ' + sym + ' 实时数据（Nasdaq）'); }
+      if (whenOK) { setStatus(whenOK, 'ok'); toast('已载入 ' + sym + ' 实时数据'); }
       else { setStatus('部分数据缺失', 'warn'); toast(whenWarn, 'warn'); }
       if (snap.atmIV == null && snap.realized && snap.realized.hv20) {
         state.iv = snap.realized.hv20;
         $('in-iv').value = (state.iv * 100).toFixed(1);
-        renderAll();
       }
+      renderAll();
     }
 
-    // ① Nasdaq（主）
+    // ② Nasdaq（主）— 取完整報價 + 期權鏈
     D.loadNasdaq(sym, wantStages()).then(function (snap) {
       finish(snap, '实时数据 · Nasdaq', null);
     }).catch(function (e1) {
-      setStatus('Nasdaq 不可用', 'warn');
-      // ② Yahoo（備）
+      // ③ Yahoo（備）
       return D.loadAll(sym, wantStages()).then(function (out) {
         if (!out) throw new Error('无返回');
         var chainMap = {};
@@ -798,10 +807,14 @@
           out.errors && out.errors.length ? ('部分数据未取到：' + out.errors[0]) : null);
       });
     }).catch(function (e2) {
-      setStatus('实时源不可用', 'bad');
-      toast('实时数据失败（需先运行 proxy.py）：' + e2.message + ' — 已切换到演示数据', 'warn');
-      applySnapshot(D.demoSnapshot(sym));
-      setStatus('演示数据', 'warn');
+      if (scanSnap) {
+        setStatus('已用掃描數據（即時代理不可用，期權鏈缺）', 'warn');
+        toast('即時代理不可用：' + e2.message + ' — 已顯示掃描數據（IV 即時，但無期權鏈）', 'warn');
+      } else {
+        applySnapshot(D.demoSnapshot(sym));
+        setStatus('演示数据（实时源不可用）', 'warn');
+        toast('即時數據失敗：' + e2.message + ' — 已切演示數據', 'warn');
+      }
     });
   }
 
@@ -971,9 +984,29 @@
     }
     renderList();
 
+    // 自訂 Worker 代理 URL（線上版唯一穩定即時通道）
+    var customVal = '';
+    try { customVal = localStorage.getItem('optiondesk.customProxy') || ''; } catch (e) { }
+    var customWrap = el('div', 'proxy-custom');
+    var clbl = el('label', 'grow', '自訂 Worker 代理 URL（Cloudflare Worker）');
+    clbl.htmlFor = 'custom-proxy-url';
+    var cinp = el('input', 'input'); cinp.type = 'text'; cinp.id = 'custom-proxy-url';
+    cinp.placeholder = 'https://option-desk-proxy.<你的subdomain>.workers.dev';
+    cinp.value = customVal;
+    var chint = el('div', 'hint', 'GitHub Pages 係純靜態、冇後台函數，即時數據要靠呢個外部 Worker 代理。部署步驟見 README「自訂代理」。留空則只用烤入嘅掃描數據（IV 即時、無期權鏈）。');
+    customWrap.appendChild(clbl); customWrap.appendChild(cinp); customWrap.appendChild(chint);
+    var pl = $('proxy-list');
+    if (pl && pl.parentNode) pl.parentNode.insertBefore(customWrap, pl);
+
     $('btn-save-proxy').onclick = function () {
+      var url = cinp.value.trim();
+      try { localStorage.setItem('optiondesk.customProxy', url); } catch (e) { }
+      // 有 URL 就將 custom 排到最前；無 URL 就拎走
+      state.proxies = state.proxies.filter(function (id) { return id !== 'custom'; });
+      if (/^https?:\/\//.test(url)) { state.proxies.unshift('custom'); }
       try { localStorage.setItem('optiondesk.proxies', JSON.stringify(state.proxies)); } catch (e) { }
-      toast('已保存代理顺序');
+      renderList();
+      toast(url ? '已保存 · 自訂代理排最前' : '已保存 · 關閉自訂代理');
       $('ds-modal').hidden = true;
     };
     $('btn-test-proxy').onclick = function () {
