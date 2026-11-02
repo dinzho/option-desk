@@ -388,9 +388,14 @@
       }).join(' + ');
     }
     function perfRow(r) {
-      var sig = r.chk10
-        ? '<span class="pv ' + (r.chk10.hit ? 'is-ok' : 'is-bad') + '">' + (r.chk10.hit ? '✓ 命中' : '✗ 脫靶') + '</span>'
-        : '<span class="pv is-wait">⏳ 跟緊</span>';
+      var sig;
+      if (r.chk10) {
+        sig = '<span class="pv ' + (r.chk10.hit ? 'is-ok' : 'is-bad') + '">' + (r.chk10.hit ? '✓ 命中' : '✗ 脫靶') + '</span>';
+      } else if (isSettled(r)) {
+        sig = '<span class="pv is-done">✔ 已結算</span>';
+      } else {
+        sig = '<span class="pv is-wait">⏳ 跟緊</span>';
+      }
       var exp2, earlyTag = '';
       if (r.exp && r.exp.pnlPerLot != null) {
         var v = r.exp.pnlPerLot;
@@ -454,6 +459,11 @@
     var pnlDollar = settledRecs.reduce(function (s, r) { return s + (r.exp.pnlPerLot || 0); }, 0);
     var avgDollar = settledRecs.length ? pnlDollar / settledRecs.length : null;
     var earlyCount = settledRecs.filter(function (r) { return r.exp.early; }).length;
+    var grossWin = settledRecs.filter(function (r) { return (r.exp.pnlPerLot || 0) > 0; })
+      .reduce(function (s, r) { return s + r.exp.pnlPerLot; }, 0);
+    var grossLoss = settledRecs.filter(function (r) { return (r.exp.pnlPerLot || 0) < 0; })
+      .reduce(function (s, r) { return s + r.exp.pnlPerLot; }, 0);
+    var profitFactor = (grossWin > 0 && grossLoss < 0) ? (grossWin / -grossLoss) : null;
     function money(v) { return (v < 0 ? '−$' : '+$') + Math.abs(Math.round(v)).toLocaleString(); }
 
     // 分標籤命中率
@@ -489,7 +499,8 @@
       hint +
       '<div class="perf-stats">' +
       statCard('信號命中率', touchRate, th + '/' + tt, '10 個交易日內價格進入盈利區間', touchRate == null, 'rate') +
-      statCard('結算勝率', settleRate, sw + '/' + sd, '已結算每手賺錢嘅比例（含提前平倉）', settleRate == null, 'rate') +
+      statCard('結算勝率', settleRate, sw + '/' + sd, '勝率高唔等於賺錢——睇結算銀碼同盈虧比', settleRate == null, 'rate') +
+      statCard('盈虧比', profitFactor, sw + '/' + sd, '總盈利 ÷ 總虧損，<1 即輸錢（勝率高都可能蝕）', !settledRecs.length, 'ratio') +
       statCard('到期損益', pnlDollar,
         (settledRecs.length ? settledRecs.length + ' 筆 · 每手平均 ' + (avgDollar == null ? '—' : money(avgDollar)) : '—'),
         '每手（100 股）實際盈虧合計，真實收市價結算', !settledRecs.length, 'dollar') +
@@ -518,9 +529,12 @@
       cls = rate >= 0 ? ' is-ok' : ' is-bad';
     } else if (mode === 'count') {
       val = String(Math.round(rate)); cls = '';
+    } else if (mode === 'ratio') {
+      val = rate.toFixed(2) + '×';
+      cls = rate >= 1 ? ' is-ok' : ' is-bad';
     } else {
       var threshold = mode === 'pnl' ? 0 : 50;
-      val = (rate > 0 ? '+' : rate < 0 ? '−' : '') + Math.abs(rate).toFixed(0) + '%';
+      val = (mode === 'rate') ? (Math.abs(rate).toFixed(0) + '%') : ((rate > 0 ? '+' : rate < 0 ? '−' : '') + Math.abs(rate).toFixed(0) + '%');
       cls = rate >= threshold ? ' is-ok' : ' is-bad';
     }
     return '<div class="perf-stat' + cls + '">' +
