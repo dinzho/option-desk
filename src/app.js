@@ -86,8 +86,8 @@
   /* ============================ 腿编辑器 ============================ */
   var LEG_HEAD =
     '<div class="legs-head">' +
-    '<span>方向</span><span>类型</span><span>行权价</span><span>DTE</span>' +
-    '<span>数量</span><span>价格 $</span><span>IV %</span><span></span></div>';
+    '<span>方向</span><span>类型</span><span>行权价</span><span>到期日</span><span>DTE</span>' +
+    '<span>数量</span><span>权利金 $</span><span>IV %</span><span></span></div>';
 
   function renderLegs() {
     var box = $('legs-table'); if (!box) return;
@@ -143,14 +143,31 @@
         if (E.finite(v)) { state.legs[i].strike = v; recompute(); }
       }, isStock, isStock ? '股票腿无行权价' : '行权价'));
       row.appendChild(cellInput(isStock ? null : leg.dte, 1, function (v) {
-        if (E.finite(v)) { state.legs[i].dte = Math.max(0, Math.round(v)); recompute(); }
+        if (E.finite(v)) {
+          state.legs[i].dte = Math.max(0, Math.round(v));
+          state.legs[i].expiry = null;   // DTE 改咗，舊到期日作廢，改由 DTE 推算
+          recompute();
+        }
       }, isStock, '距到期天数'));
+      // 到期日：優先顯示快照帶嚟嘅真實日期；冇就由 DTE 推算
+      var expTxt = '—', expTip = '';
+      if (!isStock) {
+        if (leg.expiry) { expTxt = leg.expiry.slice(5).replace('-', '/'); expTip = '到期日 ' + leg.expiry + '（快照真實到期日）'; }
+        else if (E.finite(leg.dte)) {
+          var dd = new Date(Date.now() + leg.dte * 86400000);
+          expTxt = (dd.getMonth() + 1) + '/' + dd.getDate();
+          expTip = '由 DTE ' + leg.dte + ' 天推算（估計到期日）';
+        }
+      }
+      var expCell = el('span', 'leg-expiry', expTxt);
+      expCell.title = expTip;
+      row.appendChild(expCell);
       row.appendChild(cellInput(leg.qty, isStock ? 1 : 1, function (v) {
         if (E.finite(v)) { state.legs[i].qty = Math.max(1, Math.round(v)); recompute(); }
       }, false, isStock ? '股数' : '合约张数'));
       row.appendChild(cellInput(leg.price, 0.01, function (v) {
         if (E.finite(v)) { state.legs[i].price = v; recompute(); }
-      }, false, isStock ? '持股成本' : '每股权利金'));
+      }, false, isStock ? '持股成本' : '每股权利金（1 张合约 = 100 股，即 ×100）'));
       row.appendChild(cellInput(isStock ? null : (leg.iv == null ? '' : +(leg.iv * 100).toFixed(1)), 0.1, function (v) {
         if (E.finite(v)) { state.legs[i].iv = v / 100; recompute(); }
       }, isStock, '隐含波动率 %'));
@@ -452,7 +469,12 @@
     }
     if (state.activeExpiry == null || dtes.indexOf(state.activeExpiry) < 0) state.activeExpiry = dtes[0];
     dtes.forEach(function (d) {
-      var b = el('button', 'seg-btn' + (d === state.activeExpiry ? ' is-active' : ''), d + ' 天');
+      var chd = state.chains[d] || {};
+      var lbl = chd.expiration
+        ? (chd.expiration.slice(5).replace('-', '/') + ' · ' + d + '天')
+        : (d + ' 天');
+      var b = el('button', 'seg-btn' + (d === state.activeExpiry ? ' is-active' : ''), lbl);
+      if (chd.expiration) b.title = '到期日 ' + chd.expiration;
       b.onclick = function () { state.activeExpiry = d; renderChain(); };
       seg.appendChild(b);
     });
@@ -510,7 +532,7 @@
       html += '<tr' + rowCls + '>' + left + '<td class="col-mid">' + K + '</td>' + right + '</tr>';
     });
     $('chain-body').innerHTML = html;
-    $('chain-meta').textContent = ch.dte + ' 天后到期 · ' + ks.length + ' 个行权价 · 现价 ' + money(state.spot, 2);
+    $('chain-meta').textContent = (ch.expiration ? '到期日 ' + ch.expiration + '（' + ch.dte + ' 天后）· ' : ch.dte + ' 天后到期 · ') + ks.length + ' 个行权价 · 现价 ' + money(state.spot, 2);
 
     // 绑定点击：加入持仓
     Array.prototype.forEach.call(document.querySelectorAll('#chain-body .pick'), function (td) {
@@ -545,6 +567,7 @@
     var price = E.finite(o.mid) ? o.mid : (E.finite(o.last) ? o.last : 0);
     var leg = S.makeLeg({
       kind: kind, side: 1, strike: o.strike, dte: o.dte || currentChain().dte,
+      expiry: o.expiration || (currentChain() || {}).expiration || null,
       qty: state.qty || 1, price: price, iv: o.iv, bid: o.bid, ask: o.ask, oi: o.openInterest, volume: o.volume
     });
     // 同类型同行权价同到期日已存在 → 反向则平仓，否则加仓
@@ -558,7 +581,8 @@
       if (state.legs.length >= 8) { toast('最多支持 8 条腿', 'warn'); return; }
       state.legs.push(leg);
     }
-    toast('已加入：' + (kind === 'call' ? 'Call' : 'Put') + ' ' + o.strike + ' @ ' + num(price, 2));
+    toast('已加入：' + (kind === 'call' ? 'Call' : 'Put') + ' ' + o.strike + ' @ ' + num(price, 2) +
+      (leg.expiry ? ' · 到期 ' + leg.expiry : ''));
     recompute();
   }
 
