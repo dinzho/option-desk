@@ -19,20 +19,24 @@
   'use strict';
 
   /* ---------- 数据通道（按可靠性排序） ----------
+   * custom：用家自設嘅 Cloudflare Worker 代理（喺「数据源」設定入填 URL）。
+   *         呢個係線上版唯一穩定嘅即時數據通道——GitHub Pages 係純靜態，
+   *         冇得跑後台函數，所以要靠外部 Worker 做 server-side 代理。
+   *         （之前 Netlify Function 代理就係做緊呢件事，遷站後已移除。）
+   * allorigins：公共 CORS 代理，偶爾可用，作最後兜底。
    * local：隨附 proxy.py 本地代理，純本地開發用。
-   * 其餘：公共 CORS 代理，大部分已失效，僅作最後兜底。
-   * 線上版（GitHub Pages）已將掃描數據烤入 HTML，通常唔使即時代理；
-   *   如需即時抓，會自動逐個 fallback 到下面嘅公共代理。
-   * （原 Netlify Function 代理已移除——網站已遷去 GitHub Pages，
-   *   該 endpoint 喺新站唔存在，只會白撞一次 404。）
+   * 線上版已將掃描數據烤入 HTML——掃描過嘅 150 隻股可以零網絡即時載入 IV 指標。
    */
+  function customProxyUrl() {
+    try {
+      var u = (localStorage.getItem('optiondesk.customProxy') || '').trim();
+      return /^https?:\/\//.test(u) ? u : '';
+    } catch (e) { return ''; }
+  }
   var PROXIES = [
+    { id: 'custom', name: '自訂 Worker 代理', build: function (u) { var b = customProxyUrl(); return b + (b.indexOf('?') >= 0 ? '&' : '?') + 'url=' + encodeURIComponent(u); }, custom: true },
     { id: 'allorigins', name: 'AllOrigins', build: function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
-    { id: 'allorigins-get', name: 'AllOrigins(get)', build: function (u) { return 'https://api.allorigins.win/get?url=' + encodeURIComponent(u); }, parse: function (j) { return j && j.contents ? j.contents : null; } },
-    { id: 'local', name: '本地代理 (本地開發用)', build: function (u) { return 'http://127.0.0.1:8787/?url=' + encodeURIComponent(u); }, local: true },
-    { id: 'codetabs', name: 'CodeTabs', build: function (u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); } },
-    { id: 'corsproxy', name: 'corsproxy.io', build: function (u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); } },
-    { id: 'whateverorigin', name: 'WhateverOrigin', build: function (u) { return 'https://www.whateverorigin.org/get?url=' + encodeURIComponent(u); }, parse: function (j) { return j && j.contents ? j.contents : null; } }
+    { id: 'local', name: '本地代理 (本地開發用)', build: function (u) { return 'http://127.0.0.1:8787/?url=' + encodeURIComponent(u); }, local: true }
   ];
 
   var YAHOO_HOSTS = ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'];
@@ -64,7 +68,7 @@
     var order = (opts.proxies && opts.proxies.length) ? opts.proxies : PROXIES.map(function (p) { return p.id; });
     var list = order.map(function (id) {
       return PROXIES.filter(function (p) { return p.id === id; })[0];
-    }).filter(Boolean);
+    }).filter(Boolean).filter(function (p) { return !(p.custom && !customProxyUrl()); });
     var hosts = (opts.direct ? [''] : YAHOO_HOSTS.slice());
     var attempts = [];
 
@@ -77,7 +81,7 @@
       // 目标 URL 若已含主机则不拼接；否则用当前主机
       var full = /^https?:\/\//.test(targetUrl) ? targetUrl : (host + targetUrl);
       var url = proxy.build(full);
-      return fetchWithTimeout(url, opts.timeout || 10000).then(function (text) {
+      return fetchWithTimeout(url, opts.timeout || 7000).then(function (text) {
         var body = text;
         if (proxy.parse) {
           try { body = proxy.parse(JSON.parse(text)); } catch (e) { body = text; }
@@ -912,6 +916,43 @@
     });
   }
 
+  /* ===========================================================================
+   * 6c. 由烤入嘅掃描數據（window.__DESK_SCAN__）即時還原 IV 指標 + 報價。
+   *     掃描過嘅 150 隻股零網絡即時可得——GitHub Pages 線上版嘅主力路徑。
+   *     注意：掃描數據只含單一近月到期日摘要，無完整期權鏈，
+   *           so 期權鏈仍需即時代理（自訂 Worker）或首選股快照。
+   * ======================================================================== */
+  function loadFromScan(symbol) {
+    var scan = (typeof window !== 'undefined') && window.__DESK_SCAN__;
+    if (!scan || !scan.results || !scan.results.length) return null;
+    var r = null;
+    for (var i = 0; i < scan.results.length; i++) {
+      if (String(scan.results[i].symbol || '').toUpperCase() === String(symbol).toUpperCase()) { r = scan.results[i]; break; }
+    }
+    if (!r) return null;
+    if (!E.finite(r.price) || r.price <= 0) return null;
+    return {
+      symbol: String(symbol).toUpperCase(),
+      price: r.price,
+      change: E.finite(r.change) ? r.change : null,
+      changePct: E.finite(r.changePct) ? r.changePct : null,
+      iv: E.finite(r.iv30) ? r.iv30 : null,
+      realized: {
+        hv10: E.finite(r.hv10) ? r.hv10 : null, hv20: E.finite(r.hv20) ? r.hv20 : null,
+        hv60: E.finite(r.hv60) ? r.hv60 : null, hv252: E.finite(r.hv252) ? r.hv252 : null,
+        hvBlend: E.finite(r.hvBlend) ? r.hvBlend : null
+      },
+      ivPosition: {
+        ivRank: E.finite(r.ivRank) ? r.ivRank : null,
+        vr: E.finite(r.vr) ? r.vr : null,
+        ts: E.finite(r.ts) ? r.ts : null,
+        skew25: E.finite(r.skew25) ? r.skew25 : null
+      },
+      isFromScan: true,
+      isDemo: false
+    };
+  }
+
   return {
     PROXIES: PROXIES, NASDAQ_BASE: NASDAQ_BASE,
     fetchThroughProxies: fetchThroughProxies,
@@ -921,7 +962,7 @@
     loadAll: loadAll, nearestATM: nearestATM, buildTermStructure: buildTermStructure,
     ivPosition: ivPosition, recordIV: recordIV, getIVSeries: getIVSeries, loadIVHistory: loadIVHistory,
     parseChainCSV: parseChainCSV, enrichImported: enrichImported,
-    demoSnapshot: demoSnapshot, fromNasdaq: fromNasdaq, loadNasdaq: loadNasdaq,
+    demoSnapshot: demoSnapshot, fromNasdaq: fromNasdaq, loadNasdaq: loadNasdaq, loadFromScan: loadFromScan,
     nasdaqQuote: nasdaqQuote, nasdaqHistory: nasdaqHistory, nasdaqChain: nasdaqChain
   };
 });
