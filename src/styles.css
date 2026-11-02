@@ -1153,3 +1153,13 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
   border-color: rgba(239, 108, 77, .38);
   color: var(--c-warn-strong);
 }
+
+/* 数据源設定：自訂 Worker 代理 URL 輸入區 */
+.proxy-custom {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 0; margin: 10px 0;
+  border-top: 1px dashed var(--c-border); border-bottom: 1px dashed var(--c-border);
+}
+.proxy-custom label { font-weight: 600; font-size: 13px; color: var(--c-text); }
+.proxy-custom .input { width: 100%; font-size: 13px; }
+.proxy-custom .hint { color: var(--c-faint); font-size: 12px; line-height: 1.55; }
