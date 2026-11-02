@@ -458,8 +458,8 @@
   }
 
   function renderChain() {
-    var seg = $('expiry-seg');
-    seg.innerHTML = '';
+    var sel = $('expiry-select');
+    sel.innerHTML = '';
     var dtes = Object.keys(state.chains).map(Number).sort(function (a, b) { return a - b; });
     if (!dtes.length) {
       $('chain-body').innerHTML = '<tr><td colspan="13"><div class="empty">暂无期权链数据。可点「演示数据」体验，或粘贴 CSV 导入。</div></td></tr>';
@@ -473,11 +473,14 @@
       var lbl = chd.expiration
         ? (chd.expiration.slice(5).replace('-', '/') + ' · ' + d + '天')
         : (d + ' 天');
-      var b = el('button', 'seg-btn' + (d === state.activeExpiry ? ' is-active' : ''), lbl);
-      if (chd.expiration) b.title = '到期日 ' + chd.expiration;
-      b.onclick = function () { state.activeExpiry = d; renderChain(); };
-      seg.appendChild(b);
+      var o = document.createElement('option');
+      o.value = String(d);
+      o.textContent = lbl;
+      if (chd.expiration) o.title = '到期日 ' + chd.expiration;
+      if (d === state.activeExpiry) o.selected = true;
+      sel.appendChild(o);
     });
+    sel.onchange = function () { state.activeExpiry = Number(sel.value); renderChain(); };
 
     var ch = currentChain();
     if (!ch) return;
