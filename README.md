@@ -98,16 +98,34 @@ python3 build.py
 > 同源策略禁止页面里的 JS 读取。任何在浏览器里跑的 JS 都绕不过。
 > 唯一的解法是**让服务端转发**（代理），或者**把数据预先烤进文件**。
 
-所以本工具提供三条路（按可靠度排序）：
+所以本工具提供几条路（線上 GitHub Pages 版按可靠度排序）：
 
 | 方式 | 操作 | 说明 |
 |---|---|---|
-| **① 快照烤入** | `fetch.py` + `build.py --snapshot` | 最稳。零联网、零延迟、零失败。缺点是数据静态，重跑即更新 |
-| **② 本地代理** | `python3 proxy.py`，右上角「数据源」把「本地代理」移到最上 | 实时数据。零依赖 Python 标准库；只监听 127.0.0.1；域名白名单只放行 `api.nasdaq.com` 等 |
-| **③ 公共 CORS 代理** | 什么都不做，自动轮换 AllOrigins / CodeTabs 等 | 免安装，但公共代理偶有限流，不作为主路径 |
-| **④ CSV 手动导入** | 左侧「粘贴期权链 CSV」 | 完全离线可用；`type,strike,bid,ask,last,iv,volume,openInterest` |
+| **① 烤入掃描數據** | 自動（每日掃描） | 最穩。150 隻掃描股**零網絡即時**載入 IV 分析台（價格 + IV/HV 指標）；缺期權鏈 |
+| **② Cloudflare Worker 代理** | 見下「線上版即時數據」 | 最穩嘅**即時**通道。免費 serverless，任何股票報價 + 期權鏈即時可得 |
+| **③ 本地代理** | `python3 proxy.py` | 只適用本地 `file://` 開啟，唔適用線上版 |
+| **④ 公共 CORS 代理** | 自動 fallback | 免安裝，但公共代理偶有限流，不作為主路徑 |
+| **⑤ CSV 手動匯入** | 左側「貼期權鏈 CSV」 | 完全離線可用；`type,strike,bid,ask,last,iv,volume,openInterest` |
 
-失败时自动逐级降级 → 最后落到演示数据，**永远不会白屏**。
+線上版入任何股票嘅優先次序：**先即時用烤入掃描數據填 IV（秒開）→ 再經 Worker 代理即時補報價 + 期權鏈**。
+失敗時自動逐級降級 → 最後落到演示數據，**永遠唔會白屏**。
+
+### 線上版即時數據：Cloudflare Worker 代理（推薦）
+
+GitHub Pages 係**純靜態**，冇得跑後台函數，所以瀏覽器唔可以直接打 `api.nasdaq.com`（無 CORS）。
+本倉嘅 `cloudflare-worker.js` 就係一個免費嘅 server-side 代理（完全等同之前 Netlify Function 做嘅嘢），
+幫你喺 Cloudflare 邊緣抓數據再帶 CORS 頭返給瀏覽器。
+
+**部署（免費，約 2 分鐘）：**
+1. 開 [dash.cloudflare.com](https://dash.cloudflare.com) → 左側「Workers 與 Pages」→「建立」→「Worker」
+2. 改個名（例如 `option-desk-proxy`）→「部署」→「編輯代碼」
+3. 將本倉 `cloudflare-worker.js` **全部內容**貼上去，覆蓋原本嘅 Hello World →「部署」
+4. 拎到網址：`https://option-desk-proxy.<你嘅subdomain>.workers.dev`
+5. 開 OptionDesk → 右上「数据源」→ 將上面個網址貼入「**自訂 Worker 代理 URL**」→ 儲存
+
+之後入任何股票都會經呢個 Worker 即時抓報價 + 期權鏈，速度同之前 Netlify 年代一樣。
+唔部署都得——咁就只可以用烤入嘅 150 隻掃描股（IV 即時，但無期權鏈），其餘股票會落到演示數據。
 
 ### 数据源：Nasdaq 官方公开 API（已替换 Yahoo）
 Yahoo Finance 在很多网络环境下已不可达（直接拒连，不是限流），故改用
