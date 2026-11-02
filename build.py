@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-把 src/ 下的模块内联成单个 index.html，方便直接打开或丢到 Netlify。
+把 src/ 下的模块内联成单个 index.html，方便直接打开或部署到任意静态托管（GitHub Pages 等）。
 
 用法：
     python3 build.py                              # 输出到 ./OptionDesk.html（纯 demo 数据）
