@@ -368,9 +368,8 @@ textarea.input { height: auto; min-height: 68px; padding: 8px 10px; resize: vert
 .seg-btn.is-active { background: var(--c-accent); color: var(--c-accent-text); }
 .seg.is-block { display: flex; width: 100%; }
 .seg.is-block .seg-btn { flex: 1 1 0; text-align: center; }
-/* 到期日选择器：到期月份多时横向滚动，避免溢出屏幕 */
-#expiry-seg { flex: 0 1 auto; min-width: 0; max-width: 100%; display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
-#expiry-seg .seg-btn { flex: 0 0 auto; }
+/* 到期日选择器：改用原生下拉，移动端不溢出屏幕 */
+#expiry-select { width: auto; max-width: 100%; min-width: 130px; }
 
 
 /* === 13. Table Wrap (generic data tables) ================================= */
@@ -910,6 +909,7 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 .pv.is-ok { color: var(--c-accent); }
 .pv.is-bad { color: var(--c-warn-strong); }
 .pv.is-wait { color: var(--c-faint); font-weight: 500; }
+.pv.is-done { color: var(--c-text); font-weight: 600; }
 .perf-foot { font-size: var(--fs-eyebrow); color: var(--c-faint); line-height: 1.5; }
 @media (max-width: 720px) {
   .perf-stats { grid-template-columns: 1fr 1fr; }
