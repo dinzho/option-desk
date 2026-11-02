@@ -19,17 +19,17 @@
   'use strict';
 
   /* ---------- 数据通道（按可靠性排序） ----------
-   * netlify：Netlify Function 伺服器端代理。部署喺 Netlify 時一定可用，
-   *   無 CORS、無公共代理失效問題 —— 呢個係線上版主力通道。
-   *   本地 file:// 打開時會解析失敗，自動 fallback 到下面嗰批。
    * local：隨附 proxy.py 本地代理，純本地開發用。
    * 其餘：公共 CORS 代理，大部分已失效，僅作最後兜底。
+   * 線上版（GitHub Pages）已將掃描數據烤入 HTML，通常唔使即時代理；
+   *   如需即時抓，會自動逐個 fallback 到下面嘅公共代理。
+   * （原 Netlify Function 代理已移除——網站已遷去 GitHub Pages，
+   *   該 endpoint 喺新站唔存在，只會白撞一次 404。）
    */
   var PROXIES = [
-    { id: 'netlify', name: 'Netlify 伺服器', build: function (u) { return '/.netlify/functions/nasdaq?url=' + encodeURIComponent(u); } },
-    { id: 'local', name: '本地代理 (推荐)', build: function (u) { return 'http://127.0.0.1:8787/?url=' + encodeURIComponent(u); }, local: true },
     { id: 'allorigins', name: 'AllOrigins', build: function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
     { id: 'allorigins-get', name: 'AllOrigins(get)', build: function (u) { return 'https://api.allorigins.win/get?url=' + encodeURIComponent(u); }, parse: function (j) { return j && j.contents ? j.contents : null; } },
+    { id: 'local', name: '本地代理 (本地開發用)', build: function (u) { return 'http://127.0.0.1:8787/?url=' + encodeURIComponent(u); }, local: true },
     { id: 'codetabs', name: 'CodeTabs', build: function (u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); } },
     { id: 'corsproxy', name: 'corsproxy.io', build: function (u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); } },
     { id: 'whateverorigin', name: 'WhateverOrigin', build: function (u) { return 'https://www.whateverorigin.org/get?url=' + encodeURIComponent(u); }, parse: function (j) { return j && j.contents ? j.contents : null; } }
