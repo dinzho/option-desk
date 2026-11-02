@@ -284,7 +284,7 @@ def build_snapshot(sym, months=24, years=1.2, keep_all_strikes=False):
 def main():
     ap = argparse.ArgumentParser(description="OptionDesk 免費資料抓取器")
     ap.add_argument("symbol", help="美股代碼，例如 PLTR")
-    ap.add_argument("--months", type=float, default=4, help="到期日範圍（月）")
+    ap.add_argument("--months", type=float, default=24, help="到期日範圍（月），含 LEAPS")
     ap.add_argument("--years", type=float, default=1.2, help="歷史長度（年）")
     ap.add_argument("--out", default=None, help="輸出 JSON 路徑")
     ap.add_argument("--all-strikes", action="store_true", help="保留全部履約價（檔案會大好多）")
