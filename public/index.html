@@ -379,9 +379,8 @@ textarea.input { height: auto; min-height: 68px; padding: 8px 10px; resize: vert
 .seg-btn.is-active { background: var(--c-accent); color: var(--c-accent-text); }
 .seg.is-block { display: flex; width: 100%; }
 .seg.is-block .seg-btn { flex: 1 1 0; text-align: center; }
-/* 到期日选择器：到期月份多时横向滚动，避免溢出屏幕 */
-#expiry-seg { flex: 0 1 auto; min-width: 0; max-width: 100%; display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
-#expiry-seg .seg-btn { flex: 0 0 auto; }
+/* 到期日选择器：改用原生下拉，移动端不溢出屏幕 */
+#expiry-select { width: auto; max-width: 100%; min-width: 130px; }
 
 
 /* === 13. Table Wrap (generic data tables) ================================= */
@@ -921,6 +920,7 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 .pv.is-ok { color: var(--c-accent); }
 .pv.is-bad { color: var(--c-warn-strong); }
 .pv.is-wait { color: var(--c-faint); font-weight: 500; }
+.pv.is-done { color: var(--c-text); font-weight: 600; }
 .perf-foot { font-size: var(--fs-eyebrow); color: var(--c-faint); line-height: 1.5; }
 @media (max-width: 720px) {
   .perf-stats { grid-template-columns: 1fr 1fr; }
@@ -1417,7 +1417,7 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
       <div class="toolbar">
         <div class="row">
           <span class="muted">到期日</span>
-          <div class="seg" id="expiry-seg"></div>
+          <select class="select" id="expiry-select"></select>
         </div>
         <div class="row">
           <span class="muted">显示</span>
@@ -5428,9 +5428,14 @@ window.__DESK_SNAPSHOT_META__ = {"symbol":"MSTR","fetchedAt":"2026-11-02 02:59:5
       }).join(' + ');
     }
     function perfRow(r) {
-      var sig = r.chk10
-        ? '<span class="pv ' + (r.chk10.hit ? 'is-ok' : 'is-bad') + '">' + (r.chk10.hit ? '✓ 命中' : '✗ 脫靶') + '</span>'
-        : '<span class="pv is-wait">⏳ 跟緊</span>';
+      var sig;
+      if (r.chk10) {
+        sig = '<span class="pv ' + (r.chk10.hit ? 'is-ok' : 'is-bad') + '">' + (r.chk10.hit ? '✓ 命中' : '✗ 脫靶') + '</span>';
+      } else if (isSettled(r)) {
+        sig = '<span class="pv is-done">✔ 已結算</span>';
+      } else {
+        sig = '<span class="pv is-wait">⏳ 跟緊</span>';
+      }
       var exp2, earlyTag = '';
       if (r.exp && r.exp.pnlPerLot != null) {
         var v = r.exp.pnlPerLot;
@@ -5494,6 +5499,11 @@ window.__DESK_SNAPSHOT_META__ = {"symbol":"MSTR","fetchedAt":"2026-11-02 02:59:5
     var pnlDollar = settledRecs.reduce(function (s, r) { return s + (r.exp.pnlPerLot || 0); }, 0);
     var avgDollar = settledRecs.length ? pnlDollar / settledRecs.length : null;
     var earlyCount = settledRecs.filter(function (r) { return r.exp.early; }).length;
+    var grossWin = settledRecs.filter(function (r) { return (r.exp.pnlPerLot || 0) > 0; })
+      .reduce(function (s, r) { return s + r.exp.pnlPerLot; }, 0);
+    var grossLoss = settledRecs.filter(function (r) { return (r.exp.pnlPerLot || 0) < 0; })
+      .reduce(function (s, r) { return s + r.exp.pnlPerLot; }, 0);
+    var profitFactor = (grossWin > 0 && grossLoss < 0) ? (grossWin / -grossLoss) : null;
     function money(v) { return (v < 0 ? '−$' : '+$') + Math.abs(Math.round(v)).toLocaleString(); }
 
     // 分標籤命中率
@@ -5529,7 +5539,8 @@ window.__DESK_SNAPSHOT_META__ = {"symbol":"MSTR","fetchedAt":"2026-11-02 02:59:5
       hint +
       '<div class="perf-stats">' +
       statCard('信號命中率', touchRate, th + '/' + tt, '10 個交易日內價格進入盈利區間', touchRate == null, 'rate') +
-      statCard('結算勝率', settleRate, sw + '/' + sd, '已結算每手賺錢嘅比例（含提前平倉）', settleRate == null, 'rate') +
+      statCard('結算勝率', settleRate, sw + '/' + sd, '勝率高唔等於賺錢——睇結算銀碼同盈虧比', settleRate == null, 'rate') +
+      statCard('盈虧比', profitFactor, sw + '/' + sd, '總盈利 ÷ 總虧損，<1 即輸錢（勝率高都可能蝕）', !settledRecs.length, 'ratio') +
       statCard('到期損益', pnlDollar,
         (settledRecs.length ? settledRecs.length + ' 筆 · 每手平均 ' + (avgDollar == null ? '—' : money(avgDollar)) : '—'),
         '每手（100 股）實際盈虧合計，真實收市價結算', !settledRecs.length, 'dollar') +
@@ -5558,9 +5569,12 @@ window.__DESK_SNAPSHOT_META__ = {"symbol":"MSTR","fetchedAt":"2026-11-02 02:59:5
       cls = rate >= 0 ? ' is-ok' : ' is-bad';
     } else if (mode === 'count') {
       val = String(Math.round(rate)); cls = '';
+    } else if (mode === 'ratio') {
+      val = rate.toFixed(2) + '×';
+      cls = rate >= 1 ? ' is-ok' : ' is-bad';
     } else {
       var threshold = mode === 'pnl' ? 0 : 50;
-      val = (rate > 0 ? '+' : rate < 0 ? '−' : '') + Math.abs(rate).toFixed(0) + '%';
+      val = (mode === 'rate') ? (Math.abs(rate).toFixed(0) + '%') : ((rate > 0 ? '+' : rate < 0 ? '−' : '') + Math.abs(rate).toFixed(0) + '%');
       cls = rate >= threshold ? ' is-ok' : ' is-bad';
     }
     return '<div class="perf-stat' + cls + '">' +
@@ -6158,8 +6172,8 @@ window.__DESK_SNAPSHOT_META__ = {"symbol":"MSTR","fetchedAt":"2026-11-02 02:59:5
   }
 
   function renderChain() {
-    var seg = $('expiry-seg');
-    seg.innerHTML = '';
+    var sel = $('expiry-select');
+    sel.innerHTML = '';
     var dtes = Object.keys(state.chains).map(Number).sort(function (a, b) { return a - b; });
     if (!dtes.length) {
       $('chain-body').innerHTML = '<tr><td colspan="13"><div class="empty">暂无期权链数据。可点「演示数据」体验，或粘贴 CSV 导入。</div></td></tr>';
@@ -6173,11 +6187,14 @@ window.__DESK_SNAPSHOT_META__ = {"symbol":"MSTR","fetchedAt":"2026-11-02 02:59:5
       var lbl = chd.expiration
         ? (chd.expiration.slice(5).replace('-', '/') + ' · ' + d + '天')
         : (d + ' 天');
-      var b = el('button', 'seg-btn' + (d === state.activeExpiry ? ' is-active' : ''), lbl);
-      if (chd.expiration) b.title = '到期日 ' + chd.expiration;
-      b.onclick = function () { state.activeExpiry = d; renderChain(); };
-      seg.appendChild(b);
+      var o = document.createElement('option');
+      o.value = String(d);
+      o.textContent = lbl;
+      if (chd.expiration) o.title = '到期日 ' + chd.expiration;
+      if (d === state.activeExpiry) o.selected = true;
+      sel.appendChild(o);
     });
+    sel.onchange = function () { state.activeExpiry = Number(sel.value); renderChain(); };
 
     var ch = currentChain();
     if (!ch) return;
