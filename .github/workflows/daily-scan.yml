@@ -1,21 +1,31 @@
-name: 每日期权扫描
+name: 每日期权扫描+部署
 
 # 每日美股收市后自动跑：
-#   21:30 UTC = 美东夏令 17:30 / 冬令 16:30（两个时区都喺收市后）
-#             = 香港 / 澳门时间 次日 05:30
-# 另外 workflow_dispatch 允许喺手机 GitHub App 手动触发
+#   21:30 UTC = 美东冬令 16:30（收市后）= 香港时间 次日 05:30
+# 同一次运行内：扫描 → 构建单档 HTML → 提交到 main → 部署到 GitHub Pages
+# （唔再靠跨 workflow 触发 pages-deploy，避免有时唔自动跑 / 互相 cancel）
+# workflow_dispatch 允许喺手机 GitHub App 手动触发
 on:
   schedule:
     - cron: '30 21 * * 1-5'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write      # 提交扫描结果到 main
+  pages: write         # 部署到 GitHub Pages
+  id-token: write      # OIDC 验证（deploy-pages 需要）
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
-  scan:
+  scan-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: 检出代码
@@ -35,8 +45,6 @@ jobs:
         run: pip install requests
 
       - name: 检查 Nasdaq API 连通性
-        # GitHub Actions 嘅 IP 同本地唔同。万一 Nasdaq 挡咗 CI IP，
-        # 呢步会即刻讲明系网络问题，而唔系俾 scan.py 静默交白卷。
         run: |
           CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "User-Agent: Mozilla/5.0" \
@@ -50,8 +58,6 @@ jobs:
         run: python3 scan.py --top 150 --workers 8
 
       - name: 校验扫描结果（防止部署空页面）
-        # 如果 Nasdaq 挡咗 CI IP，scan.py 可能交出「0 档合格」嘅白卷。
-        # 呢种情况宁可直接 fail，保留昨日嘅页面，好过用空页面盖掉。
         run: |
           python3 - <<'PY'
           import json, io, sys
@@ -68,8 +74,6 @@ jobs:
           PY
 
       - name: 抓当日首选标的的完整期权链（供 IV 分析台用）
-        # 净烤扫描数据嘅话，IV 分析台会落到 AVGO demo 数据。
-        # 多抓当日第一名，用户点「打开分析台」就有真实期权链可砌策略。
         run: |
           SYM=$(python3 -c "
           import json
@@ -85,8 +89,6 @@ jobs:
           fi
 
       - name: 績效覆盤（跟進過往可出手建議）
-        # 讀過往 scan 檔 + 抓歷史價格 → 計 10 日信號命中／到期結算 → 寫 scan/perf.json
-        # 檔案有體積上限（只保留最近 90 筆已結算 + 未結算），唔會撐爆 repo
         run: python3 review.py
 
       - name: 烤入单档 HTML
@@ -127,7 +129,7 @@ jobs:
           print("\n".join(lines))
           PY
 
-      - name: 提交更新（触发 Netlify 自动部署）
+      - name: 提交扫描结果到 main
         run: |
           git config user.name "OptionDesk Bot"
           git config user.email "bot@users.noreply.github.com"
@@ -138,3 +140,12 @@ jobs:
             git commit -m "每日扫描 $(date -u +%F)"
             git push
           fi
+
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public
+
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
