@@ -133,7 +133,7 @@ jobs:
         run: |
           git config user.name "OptionDesk Bot"
           git config user.email "bot@users.noreply.github.com"
-          git add public/index.html public/summary.md scan/scan-*.json scan/latest.json scan/perf.json
+          git add public/index.html public/summary.md scan/latest.json scan/perf.json
           if git diff --cached --quiet; then
             echo "今日数据与昨日相同，跳过提交"
           else
