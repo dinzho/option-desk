@@ -887,32 +887,33 @@
 
   /**
    * 一鍵：Nasdaq 報價 + 摘要 + 歷史 + 鏈，直接還原成内部快照。
-   * 失敗時向外拋，畀上層決定 fallback。
+   * 四個請求並行（Promise.all），牆鐘時間由 4×代理延遲 → 1×代理延遲；
+   * 摘要(summry) 非致命，失敗退化為 {}；報價/歷史/鏈任一失敗才整體拋。
    */
   function loadNasdaq(symbol, opts) {
     opts = opts || {};
     var raw = { symbol: String(symbol).toUpperCase(), quote: null, history: null, chains: null };
     var progress = opts.onProgress || function () { };
     progress('Nasdaq 報價', 'pending');
-    return nasdaqQuote(symbol, opts).then(function (q) {
+    progress('Nasdaq 摘要', 'pending');
+    progress('歷史波動率', 'pending');
+    progress('期權鏈', 'pending');
+    return Promise.all([
+      nasdaqQuote(symbol, opts),
+      nasdaqSummary(symbol, opts).catch(function () { return {}; }),
+      nasdaqHistory(symbol, opts),
+      nasdaqChain(symbol, opts)
+    ]).then(function (res) {
+      var q = res[0], s = res[1], h = res[2], c = res[3];
       raw.quote = q;
-      progress('Nasdaq 報價', 'ok');
-      progress('Nasdaq 摘要', 'pending');
-      return nasdaqSummary(symbol, opts);
-    }).then(function (s) {
       Object.assign(raw.quote, s);
-      progress('Nasdaq 摘要', 'ok');
-      progress('歷史波動率', 'pending');
-      return nasdaqHistory(symbol, opts);
-    }).then(function (h) {
       raw.history = h;
+      raw.chains = c;
       raw.source = 'Nasdaq public API (api.nasdaq.com) — free, no key';
       raw.fetchedAt = new Date().toLocaleString('zh-CN', { hour12: false });
+      progress('Nasdaq 報價', 'ok');
+      progress('Nasdaq 摘要', 'ok');
       progress('歷史波動率', 'ok');
-      progress('期權鏈', 'pending');
-      return nasdaqChain(symbol, opts);
-    }).then(function (c) {
-      raw.chains = c;
       progress('期權鏈', 'ok');
       var snap = fromNasdaq(raw, { rate: opts.rate, dividend: opts.dividend });
       if (!snap) throw new Error('快照還原失敗');
