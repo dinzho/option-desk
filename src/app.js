@@ -740,6 +740,7 @@
     var chg = snap.changePct;
     $('q-change').textContent = (chg != null ? (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%' : '—');
     $('q-change').className = 'pill ' + (chg == null ? '' : chg >= 0 ? 'pos' : 'neg');
+    optSel = 0;
     renderAll();
     renderOptimal();
   }
@@ -968,6 +969,9 @@
     };
   }
 
+  var optRanked = [];
+  var optSel = 0;
+
   function rankStrategies() {
     if (!state.spot || !state.chains || !Object.keys(state.chains).length) return [];
     var ctx = { spot: state.spot, iv: state.iv, rate: state.rate, dividend: state.div, qty: 1, chain: optimalChainPicker() };
@@ -1023,16 +1027,64 @@
     var cap = E.finite(p.capital) ? '$' + Math.round(p.capital) : '—';
     var credit = -item.net;                       // net<0 即收租（credit）
     var hasStock = item.legs.some(function (l) { return l.kind === 'stock'; });
+    // 代表到期日：取多数腿的 dte
+    var dtes = {};
+    item.legs.forEach(function (l) { if (l.dte != null) dtes[l.dte] = (dtes[l.dte] || 0) + 1; });
+    var repDte = 0, repN = 0;
+    Object.keys(dtes).forEach(function (k) { if (dtes[k] > repN) { repN = dtes[k]; repDte = +k; } });
+    var dteTxt = repDte ? ('约 ' + repDte + ' 天后期权到期') : '';
     var head;
     if (credit > 0) {
       head = '净收 ' + money(credit) + ' 权利金，占用资金 ' + cap +
+        (dteTxt ? '，' + dteTxt : '') +
         '；若到期守住损平点 ' + be + ' 则全数落袋（盈利概率 ' + pop + '），年化回报 ' + item.eff.toFixed(0) + '%。';
     } else {
       head = '付出 ' + money(-credit) + ' 权利金，占用资金 ' + cap +
+        (dteTxt ? '，' + dteTxt : '') +
         '，最大盈利 ' + (E.finite(p.maxProfit) ? money(p.maxProfit) : '—') + '（盈利概率 ' + pop + '），年化回报 ' + item.eff.toFixed(0) + '%。';
     }
     if (hasStock) head += '（需持有/买入正股）';
     return head;
+  }
+
+  // 每条腿的成交明细行（方向 / 类型 / 行权价 / 到期 / 中价 / 买价 / 卖价 / OI）
+  function optLegRows(item) {
+    return item.legs.map(function (l) {
+      if (l.kind === 'stock') {
+        return '<tr><td class="' + (l.side === -1 ? 'neg' : 'pos') + '">' + (l.side === -1 ? '卖' : '买') + '</td>' +
+          '<td>正股</td><td>—</td><td>—</td><td>' + (E.finite(l.price) ? l.price.toFixed(2) : '—') + '</td><td>—</td><td>—</td><td>—</td></tr>';
+      }
+      var k = l.kind === 'put' ? 'P' : 'C';
+      var dte = l.dte != null ? l.dte + 'D' : '—';
+      var mk = E.finite(l.price) ? l.price.toFixed(2) : '—';
+      var bd = E.finite(l.bid) ? l.bid.toFixed(2) : '—';
+      var ak = E.finite(l.ask) ? l.ask.toFixed(2) : '—';
+      var oi = E.finite(l.oi) ? Math.round(l.oi) : '—';
+      return '<tr><td class="' + (l.side === -1 ? 'neg' : 'pos') + '">' + (l.side === -1 ? '卖' : '买') + '</td>' +
+        '<td>' + k + '</td><td>' + (E.finite(l.strike) ? l.strike.toFixed(2) : '—') + '</td><td>' + dte + '</td>' +
+        '<td>' + mk + '</td><td>' + bd + '</td><td>' + ak + '</td><td>' + oi + '</td></tr>';
+    }).join('');
+  }
+
+  // 保守可成交净额：卖腿取买一(bid)、买腿取卖一(ask)，即对你最不利档位
+  function optRealistic(item) {
+    var sum = 0;
+    item.legs.forEach(function (l) {
+      if (l.kind === 'stock') return;
+      var px = l.side === -1 ? (E.finite(l.bid) ? l.bid : l.price) : (E.finite(l.ask) ? l.ask : l.price);
+      sum += (l.side || 0) * (px || 0) * (l.qty || 1) * 100;
+    });
+    return sum; // 同 net 口径：<0 即净收
+  }
+
+  // 流动性提示：任一期权腿 OI 偏低则列出行权价
+  function optLiquidity(item) {
+    var bad = [];
+    item.legs.forEach(function (l) {
+      if (l.kind === 'stock') return;
+      if (E.finite(l.oi) && l.oi > 0 && l.oi < 200) bad.push((E.finite(l.strike) ? l.strike.toFixed(0) : '') + (l.kind === 'put' ? 'P' : 'C'));
+    });
+    return bad;
   }
 
   function optStat(label, val, cls) {
@@ -1043,29 +1095,56 @@
     var box = document.getElementById('optimal-box');
     if (!box) return;
     var ranked = rankStrategies();
+    optRanked = ranked;
     if (!ranked.length) { box.hidden = true; box.innerHTML = ''; return; }
-    var top = ranked[0];
-    var runners = ranked.slice(1, 4);
-    var legsHtml = top.legs.map(function (l) { return '<span class="opt-leg">' + esc(legTag(l)) + '</span>'; }).join('');
+    if (optSel >= ranked.length) optSel = 0;
+    var item = ranked[optSel];
+    var isTop = (optSel === 0);
+    var runners = ranked.filter(function (_, i) { return i !== optSel; }).slice(0, 4);
+    var legsTbl =
+      '<table class="opt-legs-tbl"><thead><tr>' +
+      '<th>方向</th><th>类型</th><th>行权价</th><th>到期</th><th>中价</th><th>买价</th><th>卖价</th><th>OI</th>' +
+      '</tr></thead><tbody>' + optLegRows(item) + '</tbody></table>';
+    var markCredit = -item.net;
+    var realNet = optRealistic(item);
+    var realCredit = -realNet;
+    var fillHtml;
+    if (markCredit > 0) {
+      fillHtml = '<span class="opt-fill-row">中价估算净收 <b>' + money(markCredit) + '</b> ｜ 保守可成交净收 <b class="pos">' + money(realCredit) + '</b></span>' +
+        '<span class="opt-fill-note">展示价为 bid/ask 中点(mark)；保守估算取「卖腿买一 / 买腿卖一」，即对你最不利档位，实际多在两者之间</span>';
+    } else {
+      fillHtml = '<span class="opt-fill-row">中价估算付出 <b>' + money(-markCredit) + '</b> ｜ 保守需付 <b class="neg">' + money(-realCredit) + '</b></span>' +
+        '<span class="opt-fill-note">展示价为 bid/ask 中点(mark)；保守估算取「买腿卖一 / 卖腿买一」，即对你最不利档位</span>';
+    }
+    var liq = optLiquidity(item);
+    if (liq.length) {
+      fillHtml += '<span class="opt-fill-warn">⚠ 腿 ' + liq.join('、') + ' 持仓量(OI)&lt;200，实际成交可能滑点较大或难成交</span>';
+    }
     var runnersHtml = runners.map(function (r) {
-      return '<span class="opt-runner"><b>' + esc(r.name) + '</b> ' + (r.eff >= 0 ? '+' : '') + r.eff.toFixed(0) + '%</span>';
+      var idx = ranked.indexOf(r);
+      return '<span class="opt-runner" data-idx="' + idx + '"><b>' + esc(r.name) + '</b> ' + (r.eff >= 0 ? '+' : '') + r.eff.toFixed(0) + '%</span>';
     }).join('');
     box.hidden = false;
     box.innerHTML =
-      '<div class="opt-hero">' +
-        '<div class="opt-top"><span class="opt-badge">🏆 最优策略</span>' +
-          '<span class="opt-sub">按年化回报排名 · 收租型有限风险 · 共 ' + ranked.length + ' 个可交易结构</span></div>' +
-        '<div class="opt-name">' + esc(top.name) + ' <span class="opt-group">' + esc(top.group) + '</span></div>' +
-        '<div class="opt-legs">' + legsHtml + '</div>' +
+      '<div class="opt-hero' + (isTop ? '' : ' is-cand') + '">' +
+        '<div class="opt-top"><span class="opt-badge">' + (isTop ? '🏆 最优策略' : '候选策略') + '</span>' +
+          '<span class="opt-sub">按年化回报排名 · 收租型有限风险 · 共 ' + ranked.length + ' 个可交易结构</span>' +
+          (isTop ? '' : '<span class="opt-back" data-idx="0">↩ 回到最优</span>') + '</div>' +
+        '<div class="opt-name">' + esc(item.name) + ' <span class="opt-group">' + esc(item.group) + '</span></div>' +
+        legsTbl +
         '<div class="opt-grid">' +
-          optStat('年化回报', '+' + top.eff.toFixed(0) + '%', 'up') +
-          optStat('盈利概率', (top.prob && E.finite(top.prob.pop) ? (top.prob.pop * 100).toFixed(0) + '%' : '—'), '') +
-          optStat('占用资金', (E.finite(top.profile.capital) ? '$' + Math.round(top.profile.capital) : '—'), '') +
-          optStat('最大盈利', (E.finite(top.profile.maxProfit) ? money(top.profile.maxProfit) : '—'), '') +
+          optStat('年化回报', '+' + item.eff.toFixed(0) + '%', 'up') +
+          optStat('盈利概率', (item.prob && E.finite(item.prob.pop) ? (item.prob.pop * 100).toFixed(0) + '%' : '—'), '') +
+          optStat('占用资金', (E.finite(item.profile.capital) ? '$' + Math.round(item.profile.capital) : '—'), '') +
+          optStat('最大盈利', (E.finite(item.profile.maxProfit) ? money(item.profile.maxProfit) : '—'), '') +
         '</div>' +
-        '<div class="opt-reason">' + esc(optimalReason(top)) + '</div>' +
-        (runnersHtml ? '<div class="opt-runners"><span class="opt-runners-label">其他候选：</span>' + runnersHtml + '</div>' : '') +
+        '<div class="opt-fill">' + fillHtml + '</div>' +
+        '<div class="opt-reason">' + esc(optimalReason(item)) + '</div>' +
+        (runnersHtml ? '<div class="opt-runners"><span class="opt-runners-label">其他候选（点击查看明细）：</span>' + runnersHtml + '</div>' : '') +
       '</div>';
+    box.querySelectorAll('.opt-runner, .opt-back').forEach(function (sp) {
+      sp.onclick = function () { optSel = parseInt(sp.getAttribute('data-idx'), 10) || 0; renderOptimal(); };
+    });
   }
 
   /* ============================ 数据源配置 ============================ */

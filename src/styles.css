@@ -1161,22 +1161,41 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
   color: #eafff5; border-radius: 14px; padding: 16px 18px;
   box-shadow: 0 6px 18px rgba(5,150,105,.18);
 }
+.opt-hero.is-cand {
+  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+  box-shadow: 0 6px 18px rgba(37,99,235,.18);
+}
 .opt-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .opt-badge {
   font-size: 13px; font-weight: 800; letter-spacing: .5px;
   background: rgba(255,255,255,.18); padding: 3px 10px; border-radius: 999px;
 }
 .opt-sub { font-size: 11px; opacity: .8; }
-.opt-name { font-size: 21px; font-weight: 800; margin: 8px 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.opt-back {
+  margin-left: auto; font-size: 12px; cursor: pointer; user-select: none;
+  background: rgba(255,255,255,.22); padding: 3px 10px; border-radius: 999px;
+}
+.opt-back:hover { background: rgba(255,255,255,.34); }
+.opt-name { font-size: 21px; font-weight: 800; margin: 8px 0 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .opt-group {
   font-size: 11px; font-weight: 600; opacity: .85;
   background: rgba(255,255,255,.16); padding: 2px 8px; border-radius: 999px;
 }
-.opt-legs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 12px; }
-.opt-leg {
-  font-size: 12px; font-variant-numeric: tabular-nums;
-  background: rgba(255,255,255,.14); padding: 3px 9px; border-radius: 8px;
+.opt-legs-tbl {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+  font-variant-numeric: tabular-nums; margin-bottom: 12px;
+  background: rgba(255,255,255,.08); border-radius: 10px; overflow: hidden;
 }
+.opt-legs-tbl th, .opt-legs-tbl td {
+  padding: 6px 8px; text-align: right; white-space: nowrap;
+}
+.opt-legs-tbl th {
+  background: rgba(0,0,0,.16); font-weight: 600; opacity: .92;
+}
+.opt-legs-tbl th:first-child, .opt-legs-tbl td:first-child,
+.opt-legs-tbl th:nth-child(2), .opt-legs-tbl td:nth-child(2) { text-align: left; }
+.opt-legs-tbl td.pos { color: #b6ffd8; font-weight: 700; }
+.opt-legs-tbl td.neg { color: #ffc4c4; font-weight: 700; }
 .opt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .opt-stat {
   background: rgba(255,255,255,.12); border-radius: 10px; padding: 8px 10px;
@@ -1185,6 +1204,10 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 .opt-stat-label { font-size: 11px; opacity: .82; }
 .opt-stat-val { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .opt-stat-val.up { color: #b6ffd8; }
+.opt-fill { margin-top: 12px; font-size: 12px; line-height: 1.5; display: flex; flex-direction: column; gap: 4px; }
+.opt-fill-row { font-variant-numeric: tabular-nums; }
+.opt-fill-note { opacity: .82; font-size: 11px; }
+.opt-fill-warn { color: #ffe1b0; font-size: 11px; }
 .opt-reason {
   margin-top: 12px; font-size: 13px; line-height: 1.55;
   background: rgba(255,255,255,.1); padding: 10px 12px; border-radius: 10px;
@@ -1193,10 +1216,13 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 .opt-runners-label { opacity: .82; }
 .opt-runner {
   background: rgba(255,255,255,.14); padding: 3px 9px; border-radius: 8px;
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: tabular-nums; cursor: pointer; user-select: none;
+  transition: background .12s;
 }
+.opt-runner:hover { background: rgba(255,255,255,.3); }
 .opt-runner b { font-weight: 700; }
 @media (max-width: 640px) {
   .opt-grid { grid-template-columns: repeat(2, 1fr); }
   .opt-name { font-size: 18px; }
+  .opt-legs-tbl { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
