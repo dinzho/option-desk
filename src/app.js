@@ -1357,6 +1357,28 @@
     applyTplParams(state.template);
     // 默认生成一个策略，避免空白
     buildStrategy();
+    renderDataStamp();
+  }
+
+  /** 站顶数据更新提示：读取 build meta + 烤入扫描日期 */
+  function renderDataStamp() {
+    var el = document.getElementById('data-stamp');
+    if (!el) return;
+    var buildMeta = document.querySelector('meta[name="build"]');
+    var buildStr = buildMeta ? (buildMeta.getAttribute('content') || '').trim() : '';
+    var scan = window.__DESK_SCAN__;
+    var scanDate = (scan && scan.date) ? String(scan.date) : '';
+    var txt;
+    if (scanDate && buildStr) {
+      txt = '数据日期 ' + scanDate + ' · 自动更新于 ' + buildStr;
+    } else if (buildStr) {
+      txt = '自动更新于 ' + buildStr;
+    } else if (scanDate) {
+      txt = '数据日期 ' + scanDate;
+    } else {
+      txt = '演示数据 · 未联网';
+    }
+    el.textContent = txt;
   }
 
   /** 读取 build.py 烤进 HTML 的真实快照；成功返回 true */

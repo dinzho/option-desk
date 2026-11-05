@@ -217,6 +217,25 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .theme-toggle { display: inline-flex; align-items: center; gap: 6px; }
 
+/* 站顶数据更新提示条 */
+.data-banner {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 16px;
+  background: var(--c-surface-2);
+  border-bottom: 1px solid var(--c-border);
+  font-size: var(--fs-eyebrow); color: var(--c-muted);
+}
+.data-banner .db-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--c-profit); box-shadow: 0 0 0 3px var(--c-profit-soft);
+}
+.data-banner .db-text { font-weight: 650; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.data-banner .db-note { opacity: .72; }
+@media (max-width: 560px) {
+  .data-banner { padding: 6px 10px; font-size: 10.5px; }
+  .data-banner .db-note { display: none; }
+}
+
 /* === 6. Workspace Layout ================================================== */
 
 .workspace {
