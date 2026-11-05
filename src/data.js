@@ -27,11 +27,15 @@
    * local：隨附 proxy.py 本地代理，純本地開發用。
    * 線上版已將掃描數據烤入 HTML——掃描過嘅 150 隻股可以零網絡即時載入 IV 指標。
    */
-  function customProxyUrl() {
+    function customProxyUrl() {
     try {
       var u = (localStorage.getItem('optiondesk.customProxy') || '').trim();
-      return /^https?:\/\//.test(u) ? u : '';
-    } catch (e) { return ''; }
+      if (!/^https?:\/\//.test(u)) {
+        // 預設指向站長部署嘅 Cloudflare Worker 代理（public repo，所有訪客共用此額度）
+        u = 'https://option-desk-proxy.dinpredjudice.workers.dev';
+      }
+      return u;
+    } catch (e) { return 'https://option-desk-proxy.dinpredjudice.workers.dev'; }
   }
   var PROXIES = [
     { id: 'custom', name: '自訂 Worker 代理', build: function (u) { var b = customProxyUrl(); return b + (b.indexOf('?') >= 0 ? '&' : '?') + 'url=' + encodeURIComponent(u); }, custom: true },
