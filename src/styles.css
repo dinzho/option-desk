@@ -368,9 +368,6 @@ textarea.input { height: auto; min-height: 68px; padding: 8px 10px; resize: vert
 .seg-btn.is-active { background: var(--c-accent); color: var(--c-accent-text); }
 .seg.is-block { display: flex; width: 100%; }
 .seg.is-block .seg-btn { flex: 1 1 0; text-align: center; }
-/* 到期日选择器：改用原生下拉，移动端不溢出屏幕 */
-#expiry-select { width: auto; max-width: 100%; min-width: 130px; }
-
 
 /* === 13. Table Wrap (generic data tables) ================================= */
 
@@ -909,7 +906,6 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
 .pv.is-ok { color: var(--c-accent); }
 .pv.is-bad { color: var(--c-warn-strong); }
 .pv.is-wait { color: var(--c-faint); font-weight: 500; }
-.pv.is-done { color: var(--c-text); font-weight: 600; }
 .perf-foot { font-size: var(--fs-eyebrow); color: var(--c-faint); line-height: 1.5; }
 @media (max-width: 720px) {
   .perf-stats { grid-template-columns: 1fr 1fr; }
@@ -1158,12 +1154,49 @@ table.data td.is-editable .input { height: 26px; font-size: 12px; text-align: ri
   color: var(--c-warn-strong);
 }
 
-/* 数据源設定：自訂 Worker 代理 URL 輸入區 */
-.proxy-custom {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 12px 0; margin: 10px 0;
-  border-top: 1px dashed var(--c-border); border-bottom: 1px dashed var(--c-border);
+/* ============================ 最优策略推荐卡（加载个股即列） ============================ */
+.opt-box { margin: 0 0 16px; }
+.opt-hero {
+  background: linear-gradient(135deg, #059669 0%, #0e7c5a 100%);
+  color: #eafff5; border-radius: 14px; padding: 16px 18px;
+  box-shadow: 0 6px 18px rgba(5,150,105,.18);
 }
-.proxy-custom label { font-weight: 600; font-size: 13px; color: var(--c-text); }
-.proxy-custom .input { width: 100%; font-size: 13px; }
-.proxy-custom .hint { color: var(--c-faint); font-size: 12px; line-height: 1.55; }
+.opt-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.opt-badge {
+  font-size: 13px; font-weight: 800; letter-spacing: .5px;
+  background: rgba(255,255,255,.18); padding: 3px 10px; border-radius: 999px;
+}
+.opt-sub { font-size: 11px; opacity: .8; }
+.opt-name { font-size: 21px; font-weight: 800; margin: 8px 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.opt-group {
+  font-size: 11px; font-weight: 600; opacity: .85;
+  background: rgba(255,255,255,.16); padding: 2px 8px; border-radius: 999px;
+}
+.opt-legs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 12px; }
+.opt-leg {
+  font-size: 12px; font-variant-numeric: tabular-nums;
+  background: rgba(255,255,255,.14); padding: 3px 9px; border-radius: 8px;
+}
+.opt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.opt-stat {
+  background: rgba(255,255,255,.12); border-radius: 10px; padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.opt-stat-label { font-size: 11px; opacity: .82; }
+.opt-stat-val { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.opt-stat-val.up { color: #b6ffd8; }
+.opt-reason {
+  margin-top: 12px; font-size: 13px; line-height: 1.55;
+  background: rgba(255,255,255,.1); padding: 10px 12px; border-radius: 10px;
+}
+.opt-runners { margin-top: 10px; font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.opt-runners-label { opacity: .82; }
+.opt-runner {
+  background: rgba(255,255,255,.14); padding: 3px 9px; border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.opt-runner b { font-weight: 700; }
+@media (max-width: 640px) {
+  .opt-grid { grid-template-columns: repeat(2, 1fr); }
+  .opt-name { font-size: 18px; }
+}

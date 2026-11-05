@@ -458,8 +458,8 @@
   }
 
   function renderChain() {
-    var sel = $('expiry-select');
-    sel.innerHTML = '';
+    var seg = $('expiry-seg');
+    seg.innerHTML = '';
     var dtes = Object.keys(state.chains).map(Number).sort(function (a, b) { return a - b; });
     if (!dtes.length) {
       $('chain-body').innerHTML = '<tr><td colspan="13"><div class="empty">暂无期权链数据。可点「演示数据」体验，或粘贴 CSV 导入。</div></td></tr>';
@@ -473,14 +473,11 @@
       var lbl = chd.expiration
         ? (chd.expiration.slice(5).replace('-', '/') + ' · ' + d + '天')
         : (d + ' 天');
-      var o = document.createElement('option');
-      o.value = String(d);
-      o.textContent = lbl;
-      if (chd.expiration) o.title = '到期日 ' + chd.expiration;
-      if (d === state.activeExpiry) o.selected = true;
-      sel.appendChild(o);
+      var b = el('button', 'seg-btn' + (d === state.activeExpiry ? ' is-active' : ''), lbl);
+      if (chd.expiration) b.title = '到期日 ' + chd.expiration;
+      b.onclick = function () { state.activeExpiry = d; renderChain(); };
+      seg.appendChild(b);
     });
-    sel.onchange = function () { state.activeExpiry = Number(sel.value); renderChain(); };
 
     var ch = currentChain();
     if (!ch) return;
@@ -744,6 +741,7 @@
     $('q-change').textContent = (chg != null ? (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%' : '—');
     $('q-change').className = 'pill ' + (chg == null ? '' : chg >= 0 ? 'pos' : 'neg');
     renderAll();
+    renderOptimal();
   }
 
   /** 階段降級：① Nasdaq 即時 → ② Yahoo 即時 → ③ 演示數據 */
@@ -761,36 +759,27 @@
           if (phase === 'fail') toast(name + ' 获取失败，将尝试降级', 'warn');
         },
         rate: state.rate, dividend: state.div,
-        proxies: state.proxies,
-        timeout: 7000
+        proxies: state.proxies
       };
-    }
-
-    // ① 先即時用烤入嘅掃描數據填 IV 指標（零網絡，150 隻掃描股秒開）
-    var scanSnap = D.loadFromScan(sym);
-    if (scanSnap) {
-      applySnapshot(scanSnap);
-      setStatus('已載入掃描數據（IV 即時）· 期權鏈稍後即時補', 'ok');
-    } else {
-      setStatus('載入中… 即時抓取 ' + sym, 'warn');
     }
 
     function finish(snap, whenOK, whenWarn) {
       applySnapshot(snap);
-      if (whenOK) { setStatus(whenOK, 'ok'); toast('已载入 ' + sym + ' 实时数据'); }
+      if (whenOK) { setStatus(whenOK, 'ok'); toast('已载入 ' + sym + ' 实时数据（Nasdaq）'); }
       else { setStatus('部分数据缺失', 'warn'); toast(whenWarn, 'warn'); }
       if (snap.atmIV == null && snap.realized && snap.realized.hv20) {
         state.iv = snap.realized.hv20;
         $('in-iv').value = (state.iv * 100).toFixed(1);
+        renderAll();
       }
-      renderAll();
     }
 
-    // ② Nasdaq（主）— 取完整報價 + 期權鏈
+    // ① Nasdaq（主）
     D.loadNasdaq(sym, wantStages()).then(function (snap) {
       finish(snap, '实时数据 · Nasdaq', null);
     }).catch(function (e1) {
-      // ③ Yahoo（備）
+      setStatus('Nasdaq 不可用', 'warn');
+      // ② Yahoo（備）
       return D.loadAll(sym, wantStages()).then(function (out) {
         if (!out) throw new Error('无返回');
         var chainMap = {};
@@ -810,14 +799,10 @@
           out.errors && out.errors.length ? ('部分数据未取到：' + out.errors[0]) : null);
       });
     }).catch(function (e2) {
-      if (scanSnap) {
-        setStatus('已用掃描數據（即時代理不可用，期權鏈缺）', 'warn');
-        toast('即時代理不可用：' + e2.message + ' — 已顯示掃描數據（IV 即時，但無期權鏈）', 'warn');
-      } else {
-        applySnapshot(D.demoSnapshot(sym));
-        setStatus('演示数据（实时源不可用）', 'warn');
-        toast('即時數據失敗：' + e2.message + ' — 已切演示數據', 'warn');
-      }
+      setStatus('实时源不可用', 'bad');
+      toast('实时数据失败（需先运行 proxy.py）：' + e2.message + ' — 已切换到演示数据', 'warn');
+      applySnapshot(D.demoSnapshot(sym));
+      setStatus('演示数据', 'warn');
     });
   }
 
@@ -962,6 +947,127 @@
     }
   }
 
+  /* ============================ 最优策略推荐（加载个股即列） ============================ */
+  // 用户查个股载入时，自动对全部模板用真实期权链报价试建，按「年化回报」排名，
+  // 列出最优的一个 + 原因，唔使再一个个模板去揀。
+  function optimalChainPicker() {
+    return function (kind, strike, dte) {
+      var best = null, bd = Infinity;
+      Object.keys(state.chains).forEach(function (k) {
+        var c = state.chains[k];
+        var d = Math.abs((c.dte || 0) - dte);
+        if (d < bd) { bd = d; best = c; }
+      });
+      if (!best || bd > 7) return null;
+      var arr = kind === 'put' ? (best.puts || []) : (best.calls || []);
+      if (!arr.length) return null;
+      var pick = null, pd = Infinity;
+      arr.forEach(function (o) { var d = Math.abs((o.strike || 0) - strike); if (d < pd) { pd = d; pick = o; } });
+      if (!pick || pd > state.spot * 0.025) return null;
+      return { price: pick.mid, iv: pick.iv, bid: pick.bid, ask: pick.ask, oi: pick.openInterest, volume: pick.volume };
+    };
+  }
+
+  function rankStrategies() {
+    if (!state.spot || !state.chains || !Object.keys(state.chains).length) return [];
+    var ctx = { spot: state.spot, iv: state.iv, rate: state.rate, dividend: state.div, qty: 1, chain: optimalChainPicker() };
+    var out = [];
+    S.TEMPLATES.forEach(function (t) {
+      var def = TPL_DEFAULTS[t.id] || {};
+      ctx.dte = def.dte || 45;
+      ctx.dte2 = def.dte2 || ctx.dte;
+      ctx.widthPct = (def.width != null) ? def.width : 5;
+      ctx.wingPct = (def.wing != null) ? def.wing : 5;
+      var legs;
+      try { legs = S.buildTemplate(t.id, ctx); } catch (e) { return; }
+      if (!legs || !legs.length) return;
+      // 必须全部期权腿都有真实可成交报价（有 oi + bid/ask），否则无法实际交易，跳过
+      var tradable = legs.every(function (l) {
+        if (l.kind === 'stock') return true;
+        return l.oi != null && l.oi !== undefined && l.bid != null && l.ask != null;
+      });
+      if (!tradable) return;
+      var sc;
+      try { sc = S.scoreStructure(legs, state.spot, { rate: state.rate, dividend: state.div, iv: state.iv }); }
+      catch (e) { return; }
+      if (!sc || !sc.profile) return;
+      var effC = null;
+      if (sc.components) for (var i = 0; i < sc.components.length; i++) if (sc.components[i].key === 'eff') effC = sc.components[i];
+      if (!effC || !E.finite(effC.value)) return;   // 只排「盈利封顶、可算年化」的结构（长腿裸买期权无封顶，唔计）
+      var net = legs.reduce(function (s, l) { if (l.kind === 'stock') return s; return s + (l.side || 0) * (l.price || 0) * (l.qty || 1) * 100; }, 0);
+      // 净收租（credit）结构：Long Put / Ratio Backspread 等系「股价归零」嘅理论盈利，
+      // 除咗极少本金后年化动辄过万 %，完全失真，亦唔系真实可落袋回报，一律排除。
+      // 剩低嘅系有限风险、净收权利金嘅收租型结构（卖 Put / 卖 Call / 铁鹰 / 蝶式 / 备兑等），
+      // 呢啲年化先系真实可达——亦顺带覆盖用户想要嘅 sell put 家族。
+      var NO_GO = { long_call: 1, long_put: 1, leaps_call: 1, ratio_backspread_call: 1, ratio_backspread_put: 1 };
+      if (NO_GO[t.id]) return;
+      if (!E.finite(sc.profile.maxLoss)) return;     // 必须有限风险
+      if (!(net < 0)) return;                         // 必须系净收租（credit）结构
+      out.push({ id: t.id, name: t.name, group: t.group, dir: t.dir, legs: legs, eff: effC.value, profile: sc.profile, prob: sc.probability, net: net });
+    });
+    out.sort(function (a, b) { return b.eff - a.eff; });
+    return out;
+  }
+
+  function legTag(l) {
+    var act = l.side === -1 ? '卖' : '买';
+    if (l.kind === 'stock') return act + ' 正股';
+    var k = l.kind === 'put' ? 'P' : 'C';
+    return act + ' ' + k + ' ' + (l.strike != null ? l.strike.toFixed(2) : '—') + ' @' + (l.price != null ? l.price.toFixed(2) : '—');
+  }
+
+  function optimalReason(item) {
+    var p = item.profile, b = item.prob;
+    var pop = (b && E.finite(b.pop)) ? (b.pop * 100).toFixed(0) + '%' : '—';
+    var be = (p.breakevens && p.breakevens.length) ? '$' + p.breakevens[0].toFixed(2) : '—';
+    var cap = E.finite(p.capital) ? '$' + Math.round(p.capital) : '—';
+    var credit = -item.net;                       // net<0 即收租（credit）
+    var hasStock = item.legs.some(function (l) { return l.kind === 'stock'; });
+    var head;
+    if (credit > 0) {
+      head = '净收 ' + money(credit) + ' 权利金，占用资金 ' + cap +
+        '；若到期守住损平点 ' + be + ' 则全数落袋（盈利概率 ' + pop + '），年化回报 ' + item.eff.toFixed(0) + '%。';
+    } else {
+      head = '付出 ' + money(-credit) + ' 权利金，占用资金 ' + cap +
+        '，最大盈利 ' + (E.finite(p.maxProfit) ? money(p.maxProfit) : '—') + '（盈利概率 ' + pop + '），年化回报 ' + item.eff.toFixed(0) + '%。';
+    }
+    if (hasStock) head += '（需持有/买入正股）';
+    return head;
+  }
+
+  function optStat(label, val, cls) {
+    return '<div class="opt-stat"><span class="opt-stat-label">' + label + '</span><b class="opt-stat-val ' + (cls || '') + '">' + val + '</b></div>';
+  }
+
+  function renderOptimal() {
+    var box = document.getElementById('optimal-box');
+    if (!box) return;
+    var ranked = rankStrategies();
+    if (!ranked.length) { box.hidden = true; box.innerHTML = ''; return; }
+    var top = ranked[0];
+    var runners = ranked.slice(1, 4);
+    var legsHtml = top.legs.map(function (l) { return '<span class="opt-leg">' + esc(legTag(l)) + '</span>'; }).join('');
+    var runnersHtml = runners.map(function (r) {
+      return '<span class="opt-runner"><b>' + esc(r.name) + '</b> ' + (r.eff >= 0 ? '+' : '') + r.eff.toFixed(0) + '%</span>';
+    }).join('');
+    box.hidden = false;
+    box.innerHTML =
+      '<div class="opt-hero">' +
+        '<div class="opt-top"><span class="opt-badge">🏆 最优策略</span>' +
+          '<span class="opt-sub">按年化回报排名 · 收租型有限风险 · 共 ' + ranked.length + ' 个可交易结构</span></div>' +
+        '<div class="opt-name">' + esc(top.name) + ' <span class="opt-group">' + esc(top.group) + '</span></div>' +
+        '<div class="opt-legs">' + legsHtml + '</div>' +
+        '<div class="opt-grid">' +
+          optStat('年化回报', '+' + top.eff.toFixed(0) + '%', 'up') +
+          optStat('盈利概率', (top.prob && E.finite(top.prob.pop) ? (top.prob.pop * 100).toFixed(0) + '%' : '—'), '') +
+          optStat('占用资金', (E.finite(top.profile.capital) ? '$' + Math.round(top.profile.capital) : '—'), '') +
+          optStat('最大盈利', (E.finite(top.profile.maxProfit) ? money(top.profile.maxProfit) : '—'), '') +
+        '</div>' +
+        '<div class="opt-reason">' + esc(optimalReason(top)) + '</div>' +
+        (runnersHtml ? '<div class="opt-runners"><span class="opt-runners-label">其他候选：</span>' + runnersHtml + '</div>' : '') +
+      '</div>';
+  }
+
   /* ============================ 数据源配置 ============================ */
   function initProxyUI() {
     var saved = null;
@@ -987,29 +1093,9 @@
     }
     renderList();
 
-    // 自訂 Worker 代理 URL（線上版唯一穩定即時通道）
-    var customVal = '';
-    try { customVal = localStorage.getItem('optiondesk.customProxy') || ''; } catch (e) { }
-    var customWrap = el('div', 'proxy-custom');
-    var clbl = el('label', 'grow', '自訂 Worker 代理 URL（Cloudflare Worker）');
-    clbl.htmlFor = 'custom-proxy-url';
-    var cinp = el('input', 'input'); cinp.type = 'text'; cinp.id = 'custom-proxy-url';
-    cinp.placeholder = 'https://option-desk-proxy.<你的subdomain>.workers.dev';
-    cinp.value = customVal;
-    var chint = el('div', 'hint', 'GitHub Pages 係純靜態、冇後台函數，即時數據要靠呢個外部 Worker 代理。部署步驟見 README「自訂代理」。留空則只用烤入嘅掃描數據（IV 即時、無期權鏈）。');
-    customWrap.appendChild(clbl); customWrap.appendChild(cinp); customWrap.appendChild(chint);
-    var pl = $('proxy-list');
-    if (pl && pl.parentNode) pl.parentNode.insertBefore(customWrap, pl);
-
     $('btn-save-proxy').onclick = function () {
-      var url = cinp.value.trim();
-      try { localStorage.setItem('optiondesk.customProxy', url); } catch (e) { }
-      // 有 URL 就將 custom 排到最前；無 URL 就拎走
-      state.proxies = state.proxies.filter(function (id) { return id !== 'custom'; });
-      if (/^https?:\/\//.test(url)) { state.proxies.unshift('custom'); }
       try { localStorage.setItem('optiondesk.proxies', JSON.stringify(state.proxies)); } catch (e) { }
-      renderList();
-      toast(url ? '已保存 · 自訂代理排最前' : '已保存 · 關閉自訂代理');
+      toast('已保存代理顺序');
       $('ds-modal').hidden = true;
     };
     $('btn-test-proxy').onclick = function () {

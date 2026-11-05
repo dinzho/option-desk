@@ -141,6 +141,9 @@
       <button class="tab" role="tab" data-tab="help">说明</button>
     </nav>
 
+    <!-- ---------- 最优策略推荐（加载个股即列，默认隐藏） ---------- -->
+    <div id="optimal-box" class="opt-box" hidden></div>
+
     <!-- ---------- Tab: Scan（每日扫描，默认首屏） ---------- -->
     <section class="tab-panel is-active" data-panel="scan">
       <div id="scan-root"></div>
@@ -245,7 +248,7 @@
       <div class="toolbar">
         <div class="row">
           <span class="muted">到期日</span>
-          <select class="select" id="expiry-select"></select>
+          <div class="seg" id="expiry-seg"></div>
         </div>
         <div class="row">
           <span class="muted">显示</span>
