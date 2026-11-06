@@ -458,7 +458,7 @@
   }
 
   function renderChain() {
-    var seg = $('expiry-seg');
+    var seg = $('expiry-select');
     seg.innerHTML = '';
     var dtes = Object.keys(state.chains).map(Number).sort(function (a, b) { return a - b; });
     if (!dtes.length) {
@@ -473,11 +473,13 @@
       var lbl = chd.expiration
         ? (chd.expiration.slice(5).replace('-', '/') + ' · ' + d + '天')
         : (d + ' 天');
-      var b = el('button', 'seg-btn' + (d === state.activeExpiry ? ' is-active' : ''), lbl);
-      if (chd.expiration) b.title = '到期日 ' + chd.expiration;
-      b.onclick = function () { state.activeExpiry = d; renderChain(); };
-      seg.appendChild(b);
+      var opt = el('option', '', lbl);
+      opt.value = String(d);
+      if (chd.expiration) opt.title = '到期日 ' + chd.expiration;
+      if (d === state.activeExpiry) opt.selected = true;
+      seg.appendChild(opt);
     });
+    seg.onchange = function () { state.activeExpiry = parseInt(seg.value, 10); renderChain(); };
 
     var ch = currentChain();
     if (!ch) return;
