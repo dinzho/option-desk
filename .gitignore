@@ -22,3 +22,6 @@ package-lock.json
 
 # 测试产物
 test/*.png
+
+# 构建产物（daily-scan.yml 每次运行重新生成并烤入 public/index.html）
+OptionDesk.html

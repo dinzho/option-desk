@@ -1360,6 +1360,7 @@
     // 默认生成一个策略，避免空白
     buildStrategy();
     renderDataStamp();
+    wireRefreshNow();
   }
 
   /** 站顶数据更新提示：读取 build meta + 烤入扫描日期 */
@@ -1381,6 +1382,64 @@
       txt = '演示数据 · 未联网';
     }
     el.textContent = txt;
+    // 滞后提示：距扫描日过了几日 + 状态，让用户一眼知数据新唔新
+    var note = document.getElementById('db-note');
+    if (note) {
+      var lag = scanDate ? daysSince(scanDate) : null;
+      var msg = '每日美股收盘后自动扫描 · 无需手动刷新';
+      if (lag != null) {
+        if (lag <= 0) msg = '今日数据已就绪 · 美股收盘后自动刷新';
+        else if (lag === 1) msg = '距上次扫描 ' + lag + ' 天 · 美东昨夜未跑？可点「立即更新」';
+        else msg = '⚠ 数据滞后 ' + lag + ' 天 · 点「立即更新」手动触发';
+      }
+      note.textContent = msg;
+    }
+  }
+
+  /** 计算距某个 YYYY-MM-DD 过了几个自然日（用于滞后提示） */
+  function daysSince(dateStr) {
+    try {
+      var d = new Date(dateStr + 'T00:00:00Z');
+      if (isNaN(d.getTime())) return null;
+      return Math.floor((Date.now() - d.getTime()) / 86400000);
+    } catch (e) { return null; }
+  }
+
+  /** 「立即更新」按钮：经 Cloudflare Worker 调 GitHub Actions workflow_dispatch；
+   *  Worker 未配置时自动跳去 GitHub 手动触发页（兜底，永远可用）。 */
+  function wireRefreshNow() {
+    var btn = document.getElementById('btn-refresh-now');
+    var status = document.getElementById('db-status');
+    if (!btn) return;
+    var TRIGGER_KEY = 'od-refresh-2026';
+    btn.onclick = function () {
+      btn.disabled = true;
+      if (status) { status.textContent = '触发中…'; status.className = 'db-status'; }
+      var base = (window.OptionData && window.OptionData.customProxyUrl)
+        ? window.OptionData.customProxyUrl()
+        : 'https://option-desk-proxy.dinpredjudice.workers.dev';
+      var url = base.replace(/\/+$/, '') + '/trigger?key=' + encodeURIComponent(TRIGGER_KEY);
+      fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store' })
+        .then(function (r) {
+          return r.json().then(function (j) { return { ok: r.ok, j: j || {} }; })
+            .catch(function () { return { ok: r.ok, j: {} }; });
+        })
+        .then(function (res) {
+          if (res.ok && res.j.ok) {
+            if (status) { status.textContent = '✓ 已触发，约 2–3 分钟后自动翻新'; status.className = 'db-status is-ok'; }
+            toast('已触发扫描，稍后刷新即可见新数据');
+          } else {
+            throw new Error((res.j && res.j.error) || ('HTTP ' + res.status));
+          }
+        })
+        .catch(function () {
+          // Worker 未部署 / 未配置 GH_TOKEN → 兜底打开 GitHub 手动触发页
+          if (status) { status.textContent = '已打开 GitHub 触发页'; status.className = 'db-status is-warn'; }
+          window.open('https://github.com/dinzho/option-desk/actions/workflows/daily-scan.yml', '_blank');
+          toast('已为你打开 GitHub 手动触发页面，点「Run workflow」即可', 'warn');
+        })
+        .then(function () { btn.disabled = false; });
+    };
   }
 
   /** 读取 build.py 烤进 HTML 的真实快照；成功返回 true */
